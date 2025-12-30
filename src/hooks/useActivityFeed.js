@@ -97,6 +97,7 @@ export const useActivityFeed = () => {
             created_at,
             updated_at,
             partner_id,
+            rejected_at,
             profiles:partner_id (id, first_name, last_name, avatar_url)
           `)
           .order('updated_at', { ascending: false })
@@ -498,14 +499,24 @@ export const useActivityFeed = () => {
         }
         
         const isStatusChange = listing.updated_at !== listing.created_at && listing.status !== 'pending'
+        const isResubmission = listing.status === 'pending' && listing.rejected_at !== null && listing.rejected_at !== undefined
         
         if (listing.status === 'pending' || isStatusChange) {
+          const title = isResubmission 
+            ? 'Space Listing Resubmitted' 
+            : (statusMessages[listing.status] || `Space ${listing.status}`)
+          
+          const description = isResubmission
+            ? `${listing.profiles?.first_name || ''} ${listing.profiles?.last_name || ''}`.trim() || 'Unknown Partner' + 
+              ` resubmitted space "${listing.name}" for review`
+            : `${listing.profiles?.first_name || ''} ${listing.profiles?.last_name || ''}`.trim() || 'Unknown Partner' + 
+              ` ${listing.status === 'pending' ? 'submitted' : `space "${listing.name}" was ${listing.status}`}`
+          
           activitiesList.push({
             id: `listing_${listing.id}_${listing.status}_${listing.updated_at}`,
-            type: `listing_${listing.status}`,
-            title: statusMessages[listing.status] || `Space ${listing.status}`,
-            description: `${listing.profiles?.first_name || ''} ${listing.profiles?.last_name || ''}`.trim() || 'Unknown Partner' + 
-                        ` ${listing.status === 'pending' ? 'submitted' : `space "${listing.name}" was ${listing.status}`}`,
+            type: isResubmission ? 'listing_resubmitted' : `listing_${listing.status}`,
+            title: title,
+            description: description,
             avatar: listing.profiles?.avatar_url || '/assets/images/no_image.png',
             timestamp: isStatusChange ? listing.updated_at : listing.created_at,
             priority: listing.status === 'pending' || listing.status === 'suspended' ? 'high' : 'normal',

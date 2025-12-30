@@ -262,7 +262,7 @@ class NotificationService {
           .order('created_at', { ascending: false })
           .limit(20)),
         
-        // 2. Pending listings (all pending, no time limit)
+        // 2. Pending listings (all pending, no time limit) - including resubmissions
         this.safeFetch('listings', supabase
           .from('listings')
           .select(`
@@ -270,11 +270,13 @@ class NotificationService {
             name,
             status,
             created_at,
+            updated_at,
             submitted_at,
+            rejected_at,
             profiles:partner_id (id, first_name, last_name, avatar_url)
           `)
           .eq('status', 'pending')
-          .order('created_at', { ascending: false })
+          .order('updated_at', { ascending: false })
           .limit(20)),
         
         // 3. New user registrations (last 30 days)
@@ -518,7 +520,10 @@ class NotificationService {
       if (pendingListings.length > 0) {
         console.log(`🏢 Found ${pendingListings.length} pending listings`)
         pendingListings.forEach(listing => {
-          const notificationId = `listing_pending_${listing.id}`
+          const isResubmission = listing.rejected_at !== null && listing.rejected_at !== undefined
+          const notificationId = isResubmission 
+            ? `listing_resubmitted_${listing.id}_${listing.updated_at}` 
+            : `listing_pending_${listing.id}`
           const partnerName = listing.profiles
             ? `${listing.profiles.first_name || ''} ${listing.profiles.last_name || ''}`.trim() || 'Partner'
             : 'Partner'
@@ -526,16 +531,21 @@ class NotificationService {
           notifications.push({
             id: notificationId,
             user_id: adminUserId,
-            type: 'listing_approval',
-            title: 'Listing Pending Approval',
-            message: `"${listing.name}" by ${partnerName} needs review`,
+            type: isResubmission ? 'listing_resubmitted' : 'listing_approval',
+            title: isResubmission ? 'Listing Resubmitted for Review' : 'Listing Pending Approval',
+            message: isResubmission 
+              ? `"${listing.name}" by ${partnerName} has been resubmitted for review`
+              : `"${listing.name}" by ${partnerName} needs review`,
             data: {
               listing_id: listing.id,
+              listing_name: listing.name,
               action_url: `/space-management?listing=${listing.id}`,
-              status: 'pending'
+              status: 'pending',
+              is_resubmission: isResubmission,
+              rejected_at: listing.rejected_at
             },
             read: isRead(notificationId),
-            created_at: listing.created_at
+            created_at: isResubmission ? listing.updated_at : listing.created_at
           })
         })
       }

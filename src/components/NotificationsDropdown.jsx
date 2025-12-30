@@ -47,6 +47,8 @@ const NotificationsDropdown = ({ isOpen, onClose }) => {
         return { name: 'CheckCircle', color: 'text-success' }
       case 'listing_rejection':
         return { name: 'XCircle', color: 'text-error' }
+      case 'listing_resubmitted':
+        return { name: 'RefreshCw', color: 'text-warning' }
       case 'booking':
         return { name: 'Calendar', color: 'text-primary' }
       case 'booking_reminder':

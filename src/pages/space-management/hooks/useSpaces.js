@@ -447,6 +447,23 @@ export const useSpaces = () => {
               console.log('✅ Approval email sent to partner')
             }
           }
+        } else if (status === 'rejected') {
+          // Rejecting a listing - send rejection email
+          console.log('📧 Sending rejection email for listing:', spaceId)
+          const rejectionReason = notes || 'Your listing requires some changes before it can be approved.'
+          const { error: fnError, data: emailData } = await supabase.functions.invoke('send-rejection-email', {
+            body: {
+              listingId: spaceId,
+              rejectionReason: rejectionReason,
+              rejectedAt: nowIso
+            }
+          })
+          if (fnError) {
+            console.error('❌ Error sending listing rejection email:', fnError)
+            safeToast('Listing rejected, but email failed to send', 'warning')
+          } else {
+            console.log('✅ Rejection email sent to partner successfully:', emailData)
+          }
         }
       } catch (emailErr) {
         console.error('Error invoking email function:', emailErr)
@@ -545,13 +562,31 @@ export const useSpaces = () => {
         throw updateError
       }
 
-      // Send notifications to partners for each listing
+      // Send emails and notifications to partners for each listing
       if (listingsData && listingsData.length > 0) {
         const notificationPromises = listingsData.map(async (listing) => {
           if (!listing.partner_id) return
 
           try {
             if (status === 'active') {
+              // Send approval email
+              try {
+                const { error: emailError } = await supabase.functions.invoke('send-approval-email', {
+                  body: {
+                    listingId: listing.id,
+                    adminNotes: notes || null,
+                    approvedAt: new Date().toISOString()
+                  }
+                })
+                if (emailError) {
+                  console.error(`Error sending approval email for listing ${listing.id}:`, emailError)
+                } else {
+                  console.log(`✅ Bulk approval email sent for listing: ${listing.id}`)
+                }
+              } catch (emailErr) {
+                console.error(`Error invoking approval email for listing ${listing.id}:`, emailErr)
+              }
+
               // Send approval notification
               const result = await NotificationService.sendListingApprovalNotification(
                 listing, 
@@ -561,8 +596,26 @@ export const useSpaces = () => {
                 console.log(`✅ Bulk approval notification sent for listing: ${listing.id}`)
               }
             } else if (status === 'rejected') {
-              // Send rejection notification
+              // Send rejection email
               const rejectionReason = notes || 'Your listing requires some changes before it can be approved.'
+              try {
+                const { error: emailError } = await supabase.functions.invoke('send-rejection-email', {
+                  body: {
+                    listingId: listing.id,
+                    rejectionReason: rejectionReason,
+                    rejectedAt: new Date().toISOString()
+                  }
+                })
+                if (emailError) {
+                  console.error(`Error sending rejection email for listing ${listing.id}:`, emailError)
+                } else {
+                  console.log(`✅ Bulk rejection email sent for listing: ${listing.id}`)
+                }
+              } catch (emailErr) {
+                console.error(`Error invoking rejection email for listing ${listing.id}:`, emailErr)
+              }
+
+              // Send rejection notification
               const result = await NotificationService.sendListingRejectionNotification(
                 listing, 
                 listing.partner_id, 

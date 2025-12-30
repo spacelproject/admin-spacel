@@ -5,9 +5,11 @@ import Image from '../../../components/AppImage';
 import Button from '../../../components/ui/Button';
 import Sheet, { SheetHeader, SheetContent, SheetFooter } from '../../../components/ui/Sheet';
 import { usePendingApprovals } from '../../../hooks/usePendingApprovals';
+import { useToast } from '../../../components/ui/Toast';
 
 const PendingApprovals = ({ onModalStateChange }) => {
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [showRejectSheet, setShowRejectSheet] = useState(false);
   const [showApproveSheet, setShowApproveSheet] = useState(false);
   const [showViewSheet, setShowViewSheet] = useState(false);
@@ -15,6 +17,7 @@ const PendingApprovals = ({ onModalStateChange }) => {
   const [selectedItem, setSelectedItem] = useState(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [adminNotes, setAdminNotes] = useState('');
+  const [showSuccessState, setShowSuccessState] = useState(null); // 'approved' or 'rejected'
   
   const { 
     pendingItems, 
@@ -100,13 +103,21 @@ const PendingApprovals = ({ onModalStateChange }) => {
     const result = await approveItem(selectedItem.id, adminNotes);
     if (result.success) {
       console.log(`✅ Approved: ${selectedItem.id}`);
-      setShowApproveSheet(false);
-      setSelectedItem(null);
-      setAdminNotes('');
-      // You can add toast notification here
+      
+      // Show success state briefly before closing
+      setShowSuccessState('approved');
+      showToast(`Listing "${selectedItem.title}" approved successfully!`, 'success');
+      
+      // Close sheet after brief delay to show success state
+      setTimeout(() => {
+        setShowApproveSheet(false);
+        setShowSuccessState(null);
+        setSelectedItem(null);
+        setAdminNotes('');
+      }, 800);
     } else {
       console.error('Failed to approve:', result.error);
-      // You can add error toast here
+      showToast(`Failed to approve listing: ${result.error || 'Unknown error'}`, 'error');
     }
   };
 
@@ -121,14 +132,22 @@ const PendingApprovals = ({ onModalStateChange }) => {
     const result = await rejectItem(selectedItem.id, rejectionReason || '', adminNotes);
     if (result.success) {
       console.log(`❌ Rejected: ${selectedItem.title}`);
-      setShowRejectSheet(false);
-      setSelectedItem(null);
-      setRejectionReason('');
-      setAdminNotes('');
-      // You can add toast notification here
+      
+      // Show success state briefly before closing
+      setShowSuccessState('rejected');
+      showToast(`Listing "${selectedItem.title}" rejected successfully!`, 'success');
+      
+      // Close sheet after brief delay to show success state
+      setTimeout(() => {
+        setShowRejectSheet(false);
+        setShowSuccessState(null);
+        setSelectedItem(null);
+        setRejectionReason('');
+        setAdminNotes('');
+      }, 800);
     } else {
       console.error('Failed to reject:', result.error);
-      // You can add error toast here
+      showToast(`Failed to reject listing: ${result.error || 'Unknown error'}`, 'error');
     }
   };
 
@@ -146,6 +165,7 @@ const PendingApprovals = ({ onModalStateChange }) => {
     setShowViewSheet(false);
     setShowApproveSheet(false);
     setShowRejectSheet(false);
+    setShowSuccessState(null);
     setSelectedItem(null);
     setRejectionReason('');
     setAdminNotes('');
@@ -459,21 +479,45 @@ const PendingApprovals = ({ onModalStateChange }) => {
       >
         <SheetHeader
           onClose={closeAllSheets}
-          className="bg-green-50"
+          className={showSuccessState === 'approved' ? 'bg-green-100' : 'bg-green-50'}
         >
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-              <Icon name="CheckCircle" size={20} className="text-green-600" />
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
+              showSuccessState === 'approved' 
+                ? 'bg-green-500 scale-110' 
+                : 'bg-green-100'
+            }`}>
+              <Icon 
+                name={showSuccessState === 'approved' ? "CheckCircle" : "CheckCircle"} 
+                size={20} 
+                className={showSuccessState === 'approved' ? "text-white" : "text-green-600"} 
+              />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-gray-900">Approve Listing</h3>
-              <p className="text-sm text-gray-600 mt-0.5">Confirm approval of this space listing</p>
+              <h3 className="text-lg font-bold text-gray-900">
+                {showSuccessState === 'approved' ? 'Listing Approved!' : 'Approve Listing'}
+              </h3>
+              <p className="text-sm text-gray-600 mt-0.5">
+                {showSuccessState === 'approved' 
+                  ? 'The listing has been approved successfully' 
+                  : 'Confirm approval of this space listing'}
+              </p>
             </div>
           </div>
         </SheetHeader>
         
         <SheetContent>
-          {selectedItem && (
+          {showSuccessState === 'approved' ? (
+            <div className="flex flex-col items-center justify-center py-12">
+              <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-4 animate-pulse">
+                <Icon name="CheckCircle" size={40} className="text-green-600" />
+              </div>
+              <h4 className="text-xl font-semibold text-gray-900 mb-2">Success!</h4>
+              <p className="text-sm text-gray-600 text-center">
+                The listing has been approved and the partner has been notified.
+              </p>
+            </div>
+          ) : selectedItem ? (
             <>
               {/* Listing Info */}
               <div className="bg-gray-50 rounded-lg p-4 mb-5 border border-gray-200">
@@ -502,31 +546,35 @@ const PendingApprovals = ({ onModalStateChange }) => {
                   placeholder="Internal notes for your reference (not visible to partner)..."
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent text-sm text-gray-700 placeholder-gray-400"
                   rows={2}
+                  disabled={isApproving}
                 />
                 <p className="text-xs text-gray-500 mt-1.5">These notes are only visible to admins</p>
               </div>
             </>
-          )}
+          ) : null}
         </SheetContent>
 
-        <SheetFooter>
-          <Button
-            variant="outline"
-            onClick={closeAllSheets}
-            className="px-6 py-2.5 font-medium"
-          >
-            Cancel
-          </Button>
-          <Button
-            variant="default"
-            onClick={handleConfirmApprove}
-            disabled={isApproving}
-            className="px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white font-medium shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            iconName={isApproving ? "Loader2" : "Check"}
-          >
-            {isApproving ? 'Approving...' : 'Approve Listing'}
-          </Button>
-        </SheetFooter>
+        {showSuccessState !== 'approved' && (
+          <SheetFooter>
+            <Button
+              variant="outline"
+              onClick={closeAllSheets}
+              className="px-6 py-2.5 font-medium"
+              disabled={isApproving}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="default"
+              onClick={handleConfirmApprove}
+              disabled={isApproving}
+              className="px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white font-medium shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              iconName={isApproving ? "Loader2" : "Check"}
+            >
+              {isApproving ? 'Approving...' : 'Approve Listing'}
+            </Button>
+          </SheetFooter>
+        )}
       </Sheet>
 
       {/* Rejection Sheet */}
@@ -538,21 +586,45 @@ const PendingApprovals = ({ onModalStateChange }) => {
       >
         <SheetHeader
           onClose={closeAllSheets}
-          className="bg-red-50"
+          className={showSuccessState === 'rejected' ? 'bg-red-100' : 'bg-red-50'}
         >
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-                    <Icon name="XCircle" size={20} className="text-red-600" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-bold text-gray-900">Reject Listing</h3>
-              <p className="text-sm text-gray-600 mt-0.5">Reject this space listing</p>
+          <div className="flex items-center space-x-3">
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
+              showSuccessState === 'rejected' 
+                ? 'bg-red-500 scale-110' 
+                : 'bg-red-100'
+            }`}>
+              <Icon 
+                name="XCircle" 
+                size={20} 
+                className={showSuccessState === 'rejected' ? "text-white" : "text-red-600"} 
+              />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900">
+                {showSuccessState === 'rejected' ? 'Listing Rejected!' : 'Reject Listing'}
+              </h3>
+              <p className="text-sm text-gray-600 mt-0.5">
+                {showSuccessState === 'rejected' 
+                  ? 'The listing has been rejected successfully' 
+                  : 'Reject this space listing'}
+              </p>
             </div>
           </div>
         </SheetHeader>
 
         <SheetContent>
-          {selectedItem && (
+          {showSuccessState === 'rejected' ? (
+            <div className="flex flex-col items-center justify-center py-12">
+              <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mb-4 animate-pulse">
+                <Icon name="XCircle" size={40} className="text-red-600" />
+              </div>
+              <h4 className="text-xl font-semibold text-gray-900 mb-2">Rejected!</h4>
+              <p className="text-sm text-gray-600 text-center">
+                The listing has been rejected and the partner has been notified.
+              </p>
+            </div>
+          ) : selectedItem ? (
             <>
               {/* Listing Info */}
               <div className="bg-gray-50 rounded-lg p-4 mb-5 border border-gray-200">
@@ -582,6 +654,7 @@ const PendingApprovals = ({ onModalStateChange }) => {
                     placeholder="Please explain why this listing is being rejected. This message will be sent to the partner..."
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm text-gray-700 placeholder-gray-400"
                   rows={3}
+                  disabled={isRejecting}
                 />
                   <p className="text-xs text-gray-500 mt-1.5">This reason will be visible to the partner</p>
               </div>
@@ -596,32 +669,36 @@ const PendingApprovals = ({ onModalStateChange }) => {
                     placeholder="Internal notes for your reference (not visible to partner)..."
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent text-sm text-gray-700 placeholder-gray-400"
                   rows={2}
+                  disabled={isRejecting}
                 />
                   <p className="text-xs text-gray-500 mt-1.5">These notes are only visible to admins</p>
                 </div>
               </div>
             </>
-          )}
+          ) : null}
         </SheetContent>
 
-        <SheetFooter>
-              <Button
-                variant="outline"
-            onClick={closeAllSheets}
-                className="px-6 py-2.5 font-medium"
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={handleConfirmReject}
-                disabled={isRejecting}
-                className="px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white font-medium shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                iconName={isRejecting ? "Loader2" : "X"}
-              >
-                {isRejecting ? 'Rejecting...' : 'Reject Listing'}
-              </Button>
-        </SheetFooter>
+        {showSuccessState !== 'rejected' && (
+          <SheetFooter>
+            <Button
+              variant="outline"
+              onClick={closeAllSheets}
+              className="px-6 py-2.5 font-medium"
+              disabled={isRejecting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleConfirmReject}
+              disabled={isRejecting}
+              className="px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white font-medium shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              iconName={isRejecting ? "Loader2" : "X"}
+            >
+              {isRejecting ? 'Rejecting...' : 'Reject Listing'}
+            </Button>
+          </SheetFooter>
+        )}
       </Sheet>
     </div>
   );

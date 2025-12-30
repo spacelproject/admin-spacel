@@ -10,7 +10,7 @@ export const useNotifications = () => {
   const [error, setError] = useState(null)
   const { user } = useAuth()
 
-  const fetchNotifications = useCallback(async () => {
+      const fetchNotifications = useCallback(async () => {
     if (!user?.id) return
 
     try {
@@ -20,9 +20,10 @@ export const useNotifications = () => {
       const result = await NotificationService.getUserNotifications(user.id, 100)
       
       if (result.success) {
-        setNotifications(result.data)
-        // Calculate unread count (only count notifications that are not read)
+        // Calculate unread count BEFORE updating state to ensure accuracy
         const unread = result.data.filter(n => !n.read).length
+        
+        setNotifications(result.data)
         setUnreadCount(unread)
         console.log(`📊 Notification count updated: ${unread} unread out of ${result.data.length} total`)
       } else {
@@ -55,11 +56,21 @@ export const useNotifications = () => {
         const isActivityNotification = !NotificationService.isValidUUID(notificationId)
         
         if (isActivityNotification) {
-          // Refresh notifications to get updated read state from localStorage
-          // This ensures activity notifications marked as read are properly reflected
-          setTimeout(() => {
-            fetchNotifications()
-          }, 100)
+          // For activity notifications, localStorage is already updated by markAsRead
+          // Just update local state immediately - no need to refetch since read status is in localStorage
+          setNotifications(prev => {
+            const updated = prev.map(notification => 
+              notification.id === notificationId 
+                ? { ...notification, read: true, read_at: notification.read_at || new Date().toISOString() }
+                : notification
+            )
+            // Recalculate unread count immediately from updated array
+            const unread = updated.filter(n => !n.read).length
+            setUnreadCount(unread)
+            console.log(`✅ Activity notification marked as read. Unread count: ${unread}`)
+            return updated
+          })
+          // No need to refetch - localStorage persistence is handled, and local state is updated
         } else {
           // For database notifications, update local state immediately
           setNotifications(prev => {
@@ -82,7 +93,7 @@ export const useNotifications = () => {
       console.error('Error marking notification as read:', err)
       return { success: false, error: err.message }
     }
-  }, [notifications])
+  }, [notifications, fetchNotifications])
 
   const markAllAsRead = useCallback(async () => {
     if (!user?.id) {
@@ -93,19 +104,20 @@ export const useNotifications = () => {
     try {
       console.log('Marking all notifications as read...')
       
+      // Get all activity notification IDs and mark them as read in localStorage FIRST
+      const activityNotificationIds = notifications
+        .filter(n => !NotificationService.isValidUUID(n.id))
+        .map(n => n.id)
+      
+      if (activityNotificationIds.length > 0) {
+        NotificationService.markAllActivityNotificationsRead(user.id, activityNotificationIds)
+      }
+      
       // Mark all real notifications (from database) as read
       const result = await NotificationService.markAllAsRead(user.id)
       
-      // Get all activity notification IDs and mark them as read in localStorage
+      // Update local state immediately
       setNotifications(prev => {
-        const activityNotificationIds = prev
-          .filter(n => !NotificationService.isValidUUID(n.id))
-          .map(n => n.id)
-        
-        if (activityNotificationIds.length > 0) {
-          NotificationService.markAllActivityNotificationsRead(user.id, activityNotificationIds)
-        }
-        
         const updated = prev.map(notification => ({
           ...notification, 
           read: true, 
@@ -115,23 +127,29 @@ export const useNotifications = () => {
         return updated
       })
       
-      // Reset unread count
+      // Reset unread count immediately
       setUnreadCount(0)
+      
+      // Refresh after a short delay to ensure consistency with database and localStorage
+      // This ensures any new notifications that came in during the mark-all operation are included
+      setTimeout(() => {
+        fetchNotifications()
+      }, 300)
       
       // Return success even if database update failed, since we updated local state
       return { success: true, data: result.data || [] }
     } catch (err) {
       console.error('Error marking all notifications as read:', err)
       // Still update local state even if database update fails
+      const activityNotificationIds = notifications
+        .filter(n => !NotificationService.isValidUUID(n.id))
+        .map(n => n.id)
+      
+      if (activityNotificationIds.length > 0) {
+        NotificationService.markAllActivityNotificationsRead(user.id, activityNotificationIds)
+      }
+      
       setNotifications(prev => {
-        const activityNotificationIds = prev
-          .filter(n => !NotificationService.isValidUUID(n.id))
-          .map(n => n.id)
-        
-        if (activityNotificationIds.length > 0) {
-          NotificationService.markAllActivityNotificationsRead(user.id, activityNotificationIds)
-        }
-        
         return prev.map(notification => ({
           ...notification, 
           read: true, 
@@ -139,9 +157,15 @@ export const useNotifications = () => {
         }))
       })
       setUnreadCount(0)
+      
+      // Refresh after a short delay to ensure consistency
+      setTimeout(() => {
+        fetchNotifications()
+      }, 300)
+      
       return { success: false, error: err.message }
     }
-  }, [user?.id])
+  }, [user?.id, notifications, fetchNotifications])
 
   const refreshNotifications = useCallback(() => {
     fetchNotifications()
@@ -293,12 +317,21 @@ export const useNotifications = () => {
         .subscribe()
       activitySubscriptions.push(bookingsChannel)
 
-      // Subscribe to listings
+      // Subscribe to listings - both new submissions and resubmissions
       const listingsChannel = supabase
         .channel(`admin-listings:${user.id}`)
         .on('postgres_changes',
           {
             event: 'INSERT',
+            schema: 'public',
+            table: 'listings',
+            filter: 'status=eq.pending'
+          },
+          debouncedRefresh
+        )
+        .on('postgres_changes',
+          {
+            event: 'UPDATE',
             schema: 'public',
             table: 'listings',
             filter: 'status=eq.pending'

@@ -250,6 +250,25 @@ export const usePendingApprovals = () => {
         throw error
       }
 
+      // Send rejection email to partner
+      try {
+        console.log('📧 Sending rejection email for listing:', itemId)
+        const { error: emailError, data: emailData } = await supabase.functions.invoke('send-rejection-email', {
+          body: {
+            listingId: itemId,
+            rejectionReason: rejectionReason,
+            rejectedAt: new Date().toISOString()
+          }
+        })
+        if (emailError) {
+          console.error('❌ Error sending listing rejection email:', emailError)
+        } else {
+          console.log('✅ Rejection email sent to partner successfully:', emailData)
+        }
+      } catch (emailErr) {
+        console.error('Error invoking rejection email function:', emailErr)
+      }
+
       // Send rejection notification to partner
       const notificationResult = await NotificationService.sendListingRejectionNotification(
         listingData, 
