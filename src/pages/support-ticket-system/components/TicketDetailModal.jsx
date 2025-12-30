@@ -3,6 +3,7 @@ import Button from '../../../components/ui/Button';
 import Select from '../../../components/ui/Select';
 import Icon from '../../../components/AppIcon';
 import Image from '../../../components/AppImage';
+import LoadingSpinner from '../../../components/ui/LoadingSpinner';
 import { supabase } from '../../../lib/supabase';
 import { storage } from '../../../lib/supabase';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -24,6 +25,7 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
   const [supportAgents, setSupportAgents] = useState([]);
   const [previousTickets, setPreviousTickets] = useState([]);
   const [userDetails, setUserDetails] = useState(null);
+  const [showAllActivities, setShowAllActivities] = useState(false);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
@@ -102,6 +104,7 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
         created_at,
         user_id,
         admin_id,
+        attachments,
         profiles:user_id (first_name, last_name, email, avatar_url),
         admin_profiles:admin_id (first_name, last_name, email, avatar_url)
       `)
@@ -109,7 +112,71 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
       .order('created_at', { ascending: true });
 
     if (!error && data) {
-      setReplies(data);
+      // Check storage for files if attachments are missing
+      // First, get all files in the ticket folder
+      let storageFiles = [];
+      try {
+        const { data: files, error: listError } = await storage.support.list(
+          `${ticket.dbId}/`,
+          {
+            limit: 100,
+            sortBy: { column: 'name', order: 'asc' }
+          }
+        );
+        
+        if (!listError && files && files.length > 0) {
+          storageFiles = files.map(file => {
+            const { data: urlData } = storage.support.getPublicUrl(`${ticket.dbId}/${file.name}`);
+            return {
+              name: file.name,
+              url: urlData.publicUrl,
+              size: file.metadata?.size || 0,
+              type: file.metadata?.mimetype || (file.name.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? 'image/jpeg' : 'application/octet-stream'),
+              created_at: file.created_at || file.updated_at
+            };
+          });
+        }
+      } catch (storageError) {
+        console.warn('Error checking storage for attachments:', storageError);
+      }
+      
+      // Match files to replies based on timing
+      const repliesWithAttachments = data.map((reply) => {
+        // If attachments exist, use them
+        if (reply.attachments && Array.isArray(reply.attachments) && reply.attachments.length > 0) {
+          return reply;
+        }
+        
+        // If no attachments, try to find files from storage that might belong to this message
+        if (storageFiles.length > 0 && !reply.admin_id) {
+          const messageTime = new Date(reply.created_at).getTime();
+          // Find files created within 2 minutes of the message
+          const matchingFiles = storageFiles
+            .filter(file => {
+              if (!file.created_at) return false;
+              const fileTime = new Date(file.created_at).getTime();
+              const timeDiff = Math.abs(fileTime - messageTime);
+              return timeDiff < 2 * 60 * 1000; // 2 minutes
+            })
+            .map(({ created_at, ...file }) => ({
+              name: file.name.split('/').pop(), // Just the filename
+              url: file.url,
+              size: file.size,
+              type: file.type
+            }));
+          
+          if (matchingFiles.length > 0) {
+            return {
+              ...reply,
+              attachments: matchingFiles
+            };
+          }
+        }
+        
+        return reply;
+      });
+      
+      setReplies(repliesWithAttachments);
     }
     setLoading(false);
   };
@@ -211,50 +278,289 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
 
       const userRole = profile?.role || 'seeker';
 
-      // Fetch user bookings stats based on role (matching useUsers.js logic)
-      let bookingsCount = 0;
+      // Fetch user bookings stats - check BOTH roles since users can switch
+      let seekerBookingsCount = 0;
+      let partnerBookingsCount = 0;
+      let totalBookingsCount = 0;
       let totalSpent = 0;
+      let recentActivities = [];
 
-      if (userRole === 'seeker') {
-        // For seekers: fetch bookings where they are the seeker
-        const { data: seekerBookings, error: seekerBookingsError } = await supabase
+      // Fetch activities for BOTH seeker and partner roles
+      // This ensures we see all activities regardless of current role
+
+      // ========== SEEKER ACTIVITIES ==========
+      // Fetch bookings where user is the seeker
+      const { data: seekerBookings, error: seekerBookingsError } = await supabase
         .from('bookings')
-          .select('id, total_paid, price, payment_status')
-        .eq('seeker_id', ticket.user.id);
+        .select('id, total_paid, price, payment_status, start_time, status, created_at, listings:listing_id (name)')
+        .eq('seeker_id', ticket.user.id)
+        .order('created_at', { ascending: false })
+        .limit(50);
 
-        if (seekerBookingsError) {
-          logWarn('Error fetching seeker bookings:', seekerBookingsError);
-        } else if (seekerBookings) {
-          bookingsCount = seekerBookings.length;
+      if (seekerBookingsError) {
+        logWarn('Error fetching seeker bookings:', seekerBookingsError);
+      } else if (seekerBookings) {
+        seekerBookingsCount = seekerBookings.length;
 
-          // Calculate total spent: only count paid bookings (matching useUsers.js)
-          totalSpent = seekerBookings.reduce((sum, booking) => {
-            // Only count paid bookings
-            if (booking.payment_status !== 'paid') return sum;
-            
-            // Use total_paid if available, otherwise use price (matching useUsers.js)
-            const amount = parseFloat(booking.total_paid) || parseFloat(booking.price) || 0;
-            return sum + amount;
-          }, 0);
-        }
-      } else if (userRole === 'partner') {
-        // For partners: fetch bookings where they are the partner
-        const { data: partnerBookings, error: partnerBookingsError } = await supabase
+        // Add bookings as activities with role indicator
+        recentActivities.push(...seekerBookings.map(b => ({
+          type: 'booking',
+          id: b.id,
+          title: `Booking (as Seeker): ${b.listings?.name || 'Unknown Space'}`,
+          description: `Status: ${b.status || 'Unknown'}`,
+          amount: parseFloat(b.total_paid || b.price || 0),
+          timestamp: b.created_at,
+          role: 'seeker',
+          metadata: { booking: b }
+        })));
+
+        // Calculate total spent: only count paid bookings
+        totalSpent = seekerBookings.reduce((sum, booking) => {
+          if (booking.payment_status !== 'paid') return sum;
+          const amount = parseFloat(booking.total_paid) || parseFloat(booking.price) || 0;
+          return sum + amount;
+        }, 0);
+      }
+
+      // Fetch recent payments/transactions through bookings (as seeker)
+      const { data: userBookings, error: bookingsError } = await supabase
         .from('bookings')
-          .select(`
-            id,
-            listings!inner(partner_id)
-          `)
-          .eq('listings.partner_id', ticket.user.id);
+        .select('id')
+        .eq('seeker_id', ticket.user.id)
+        .limit(50);
 
-        if (partnerBookingsError) {
-          logWarn('Error fetching partner bookings:', partnerBookingsError);
-        } else if (partnerBookings) {
-          bookingsCount = partnerBookings.length;
-          // For partners, totalSpent would be their earnings, but for support context we show 0
-          totalSpent = 0;
+      if (!bookingsError && userBookings && userBookings.length > 0) {
+        const bookingIds = userBookings.map(b => b.id);
+        
+        const { data: payments, error: paymentsError } = await supabase
+          .from('payment_logs')
+          .select('id, amount, status, transaction_id, created_at, bookings:booking_id (id, listings:listing_id (name))')
+          .in('booking_id', bookingIds)
+          .order('created_at', { ascending: false })
+          .limit(50);
+
+        if (!paymentsError && payments) {
+          recentActivities.push(...payments.map(p => ({
+            type: 'payment',
+            id: p.id,
+            title: `Payment (as Seeker): ${p.bookings?.listings?.name || 'Transaction'}`,
+            description: `Status: ${p.status || 'Unknown'}`,
+            amount: Math.abs(parseFloat(p.amount || 0)),
+            timestamp: p.created_at,
+            role: 'seeker',
+            metadata: { payment: p }
+          })));
         }
       }
+
+      // Fetch recent reviews (as seeker)
+      const { data: reviews, error: reviewsError } = await supabase
+        .from('reviews')
+        .select('id, rating, comment, created_at, listings:listing_id (name)')
+        .eq('seeker_id', ticket.user.id)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (!reviewsError && reviews) {
+        recentActivities.push(...reviews.map(r => ({
+          type: 'review',
+          id: r.id,
+          title: `Review (as Seeker): ${r.listings?.name || 'Unknown Space'}`,
+          description: `${r.rating} stars${r.comment ? ': ' + r.comment.substring(0, 50) + '...' : ''}`,
+          timestamp: r.created_at,
+          role: 'seeker',
+          metadata: { review: r }
+        })));
+      }
+
+      // ========== PARTNER ACTIVITIES ==========
+      // Fetch bookings where user is the partner
+      const { data: partnerBookings, error: partnerBookingsError } = await supabase
+        .from('bookings')
+        .select(`
+          id,
+          total_paid,
+          base_amount,
+          price,
+          start_time,
+          status,
+          created_at,
+          listings!inner(partner_id, name)
+        `)
+        .eq('listings.partner_id', ticket.user.id)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (partnerBookingsError) {
+        logWarn('Error fetching partner bookings:', partnerBookingsError);
+      } else if (partnerBookings) {
+        partnerBookingsCount = partnerBookings.length;
+        recentActivities.push(...partnerBookings.map(b => {
+          // For partner bookings, show the booking amount (what the seeker paid)
+          // Priority: total_paid > base_amount > price
+          const bookingAmount = parseFloat(b.total_paid || b.base_amount || b.price || 0);
+          return {
+            type: 'booking',
+            id: b.id,
+            title: `Booking (as Partner): ${b.listings?.name || 'Unknown Space'}`,
+            description: `Status: ${b.status || 'Unknown'}`,
+            amount: bookingAmount,
+            timestamp: b.created_at,
+            role: 'partner',
+            metadata: { booking: b }
+          };
+        }));
+      }
+
+      // Fetch recent listings activity (as partner)
+      const { data: listings, error: listingsError } = await supabase
+        .from('listings')
+        .select('id, name, status, created_at, updated_at')
+        .eq('partner_id', ticket.user.id)
+        .order('updated_at', { ascending: false })
+        .limit(50);
+
+      if (!listingsError && listings) {
+        listings.forEach(l => {
+          // Add listing creation
+          recentActivities.push({
+            type: 'listing_created',
+            id: l.id,
+            title: `Listed a space (as Partner): ${l.name}`,
+            description: `Status: ${l.status || 'Unknown'}`,
+            timestamp: l.created_at,
+            role: 'partner',
+            metadata: { listing: l }
+          });
+          
+          // Add listing update if it was updated after creation
+          if (l.updated_at && new Date(l.updated_at) > new Date(l.created_at)) {
+            recentActivities.push({
+              type: 'listing_updated',
+              id: `${l.id}-update`,
+              title: `Updated listing (as Partner): ${l.name}`,
+              description: `Status: ${l.status || 'Unknown'}`,
+              timestamp: l.updated_at,
+              role: 'partner',
+              metadata: { listing: l }
+            });
+          }
+        });
+      }
+
+      // Fetch payout requests (as partner)
+      const { data: payoutRequests, error: payoutError } = await supabase
+        .from('payout_requests')
+        .select('id, amount, status, requested_at, updated_at')
+        .eq('partner_id', ticket.user.id)
+        .order('updated_at', { ascending: false })
+        .limit(50);
+
+      if (!payoutError && payoutRequests) {
+        recentActivities.push(...payoutRequests.map(p => ({
+          type: 'payout_request',
+          id: p.id,
+          title: `Requested payout (as Partner)`,
+          description: `Amount: A$${parseFloat(p.amount || 0).toFixed(2)} • Status: ${p.status || 'Unknown'}`,
+          amount: parseFloat(p.amount || 0),
+          timestamp: p.requested_at || p.updated_at,
+          role: 'partner',
+          metadata: { payout: p }
+        })));
+      }
+
+      // Fetch earnings (as partner)
+      try {
+        const { data: earnings, error: earningsError } = await supabase
+          .from('earnings')
+          .select('id, amount, status, created_at, booking_id, bookings:booking_id (id, listings:listing_id (name))')
+          .eq('partner_id', ticket.user.id)
+          .order('created_at', { ascending: false })
+          .limit(50);
+
+        if (!earningsError && earnings && earnings.length > 0) {
+          recentActivities.push(...earnings.map(e => ({
+            type: 'earning',
+            id: e.id,
+            title: `Earning (as Partner): ${e.bookings?.listings?.name || 'Booking'}`,
+            description: `Status: ${e.status || 'Unknown'}`,
+            amount: parseFloat(e.amount || 0),
+            timestamp: e.created_at,
+            role: 'partner',
+            metadata: { earning: e }
+          })));
+        }
+      } catch (earningsErr) {
+        logWarn('Could not fetch earnings:', earningsErr);
+      }
+
+      // Calculate total bookings count (both roles)
+      totalBookingsCount = seekerBookingsCount + partnerBookingsCount;
+
+      // Fetch favorites (for all users)
+      const { data: favorites, error: favoritesError } = await supabase
+        .from('favorites')
+        .select('id, created_at, listings:listing_id (name)')
+        .eq('user_id', ticket.user.id)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (!favoritesError && favorites) {
+        recentActivities.push(...favorites.map(f => ({
+          type: 'favorite',
+          id: f.id,
+          title: `Favorited: ${f.listings?.name || 'Space'}`,
+          description: 'Added to favorites',
+          timestamp: f.created_at,
+          metadata: { favorite: f }
+        })));
+      }
+
+      // Fetch user status history (if available)
+      try {
+        const { data: statusHistory, error: statusHistoryError } = await supabase
+          .from('user_status_history')
+          .select('id, old_status, new_status, reason, created_at')
+          .eq('user_id', ticket.user.id)
+          .order('created_at', { ascending: false })
+          .limit(50);
+
+        if (!statusHistoryError && statusHistory && statusHistory.length > 0) {
+          recentActivities.push(...statusHistory.map(sh => ({
+            type: 'status_change',
+            id: sh.id,
+            title: `Account status changed`,
+            description: `From ${sh.old_status || 'Unknown'} to ${sh.new_status || 'Unknown'}${sh.reason ? `: ${sh.reason}` : ''}`,
+            timestamp: sh.created_at,
+            metadata: { statusChange: sh }
+          })));
+        }
+      } catch (statusErr) {
+        logWarn('Could not fetch status history:', statusErr);
+      }
+
+      // Fetch recent support tickets as activities
+      const { data: recentTickets, error: ticketsError } = await supabase
+        .from('support_tickets')
+        .select('id, ticket_id, subject, status, created_at')
+        .eq('user_id', ticket.user.id)
+        .neq('id', ticket.dbId)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (!ticketsError && recentTickets) {
+        recentActivities.push(...recentTickets.map(t => ({
+          type: 'ticket',
+          id: t.id,
+          title: `Support Ticket: ${t.subject || 'No subject'}`,
+          description: `Status: ${t.status || 'Unknown'}`,
+          timestamp: t.created_at,
+          metadata: { ticket: t }
+        })));
+      }
+
+      // Sort all activities by timestamp (most recent first)
+      recentActivities.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
       // Fetch ticket count
       const { count: ticketCount, error: ticketCountError } = await supabase
@@ -275,11 +581,15 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
 
       setUserDetails({
         profile,
-        bookingsCount: bookingsCount || 0,
+        bookingsCount: totalBookingsCount || 0,
+        seekerBookingsCount: seekerBookingsCount || 0,
+        partnerBookingsCount: partnerBookingsCount || 0,
         totalSpent: totalSpent || 0,
         ticketCount: ticketCount || 0,
         memberSince: profile?.created_at ? new Date(profile.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'N/A',
-        accountStatus
+        accountStatus,
+        recentActivities,
+        currentRole: userRole
       });
     } catch (error) {
       logError('Error fetching user details:', error);
@@ -477,12 +787,35 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
   };
 
   const formatTimestamp = (date) => {
-    return new Intl.DateTimeFormat('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    }).format(new Date(date));
+    const now = new Date();
+    const messageDate = new Date(date);
+    const diffInSeconds = Math.floor((now - messageDate) / 1000);
+    const diffInMinutes = Math.floor(diffInSeconds / 60);
+    const diffInHours = Math.floor(diffInMinutes / 60);
+    const diffInDays = Math.floor(diffInHours / 24);
+
+    let relativeTime = '';
+    if (diffInSeconds < 60) {
+      relativeTime = 'Just now';
+    } else if (diffInMinutes < 60) {
+      relativeTime = `${diffInMinutes}m ago`;
+    } else if (diffInHours < 24) {
+      relativeTime = `${diffInHours}h ago`;
+    } else if (diffInDays < 7) {
+      relativeTime = `${diffInDays}d ago`;
+    } else {
+      relativeTime = messageDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+
+    return {
+      formatted: new Intl.DateTimeFormat('en-US', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      }).format(messageDate),
+      relativeTime
+    };
   };
 
   const tabs = [
@@ -499,13 +832,15 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
       sender: 'user',
       message: ticket.description || 'No description provided',
       timestamp: ticket.createdAt,
-      isInitial: true
+      isInitial: true,
+      attachments: ticket.attachments || []
     },
     ...replies.map(reply => ({
       id: reply.id,
       sender: reply.admin_id ? 'support' : 'user',
       message: reply.content,
       timestamp: reply.created_at,
+      attachments: reply.attachments || [],
       admin_id: reply.admin_id,
       admin_name: reply.admin_profiles ? `${reply.admin_profiles.first_name || ''} ${reply.admin_profiles.last_name || ''}`.trim() : 'Support Agent',
       user_name: reply.profiles ? `${reply.profiles.first_name || ''} ${reply.profiles.last_name || ''}`.trim() : ticket.user.name
@@ -589,10 +924,73 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
                                   : message.admin_name}
                               </span>
                               <span className="text-xs opacity-70">
-                                {formatTimestamp(message.timestamp)}
+                                {formatTimestamp(message.timestamp).formatted}
                               </span>
                             </div>
                             <p className="text-sm">{message.message}</p>
+                            {message.attachments && message.attachments.length > 0 && (
+                              <div className="mt-3 space-y-2">
+                                {message.attachments.map((att, idx) => {
+                                  const isImage = att.type?.startsWith('image/') || 
+                                                 att.url?.match(/\.(jpg|jpeg|png|gif|webp|bmp)(\?|$)/i);
+                                  
+                                  if (isImage) {
+                                    return (
+                                      <div key={idx} className="relative group">
+                                        <a
+                                          href={att.url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="block"
+                                        >
+                                          <img
+                                            src={att.url}
+                                            alt={att.name || 'Attachment'}
+                                            className="max-w-full max-h-64 rounded-lg border border-border object-contain cursor-pointer hover:opacity-90 transition-opacity"
+                                            onError={(e) => {
+                                              // Fallback to link if image fails to load
+                                              e.target.style.display = 'none';
+                                              const fallback = e.target.nextElementSibling;
+                                              if (fallback) fallback.style.display = 'flex';
+                                            }}
+                                          />
+                                          <a
+                                            href={att.url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="hidden text-xs underline opacity-80 hover:opacity-100 flex items-center gap-1 mt-1"
+                                          >
+                                            <Icon name="Paperclip" size={12} />
+                                            {att.name || 'Attachment'}
+                                          </a>
+                                        </a>
+                                        <div className="text-xs opacity-70 mt-1">
+                                          {att.name || 'Image'}
+                                        </div>
+                                      </div>
+                                    );
+                                  } else {
+                                    return (
+                                      <a
+                                        key={idx}
+                                        href={att.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-xs underline opacity-80 hover:opacity-100 flex items-center gap-1"
+                                      >
+                                        <Icon name="Paperclip" size={12} />
+                                        {att.name || 'Attachment'}
+                                        {att.size && (
+                                          <span className="opacity-70">
+                                            ({(att.size / 1024).toFixed(1)}KB)
+                                          </span>
+                                        )}
+                                      </a>
+                                    );
+                                  }
+                                })}
+                              </div>
+                            )}
                           </div>
                         </div>
                       ))
@@ -637,48 +1035,327 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
 
               {activeTab === 'details' && (
                 <div className="space-y-6">
-                  <div className="flex items-center space-x-4">
-                    <Image
-                      src={ticket.user.avatar}
-                      alt={ticket.user.name}
-                      className="w-16 h-16 rounded-full object-cover"
-                    />
-                    <div>
-                      <h3 className="text-lg font-semibold text-foreground">{ticket.user.name}</h3>
-                      <p className="text-muted-foreground">{ticket.user.email}</p>
-                      {userDetails && (
-                        <p className="text-sm text-muted-foreground">Member since: {userDetails.memberSince}</p>
+                  {/* User Profile Header Card */}
+                  <div className="bg-card border border-border rounded-lg p-6">
+                    <div className="flex items-center space-x-4 mb-4">
+                      <Image
+                        src={ticket.user?.avatar || '/assets/images/no_image.png'}
+                        alt={ticket.user?.name}
+                        className="w-20 h-20 rounded-full object-cover border-2 border-border"
+                      />
+                      <div className="flex-1">
+                        <h3 className="text-xl font-semibold text-foreground mb-1">{ticket.user?.name || 'Unknown User'}</h3>
+                        <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                          <Icon name="Mail" size={14} />
+                          <span className="text-sm">{ticket.user?.email}</span>
+                        </div>
+                        {userDetails && (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Icon name="Calendar" size={14} />
+                            <span>Member since {userDetails.memberSince}</span>
+                          </div>
+                        )}
+                      </div>
+                      {userDetails?.profile?.role && (
+                        <div className={`px-3 py-1 rounded-full text-xs font-medium ${
+                          userDetails.profile.role === 'partner' 
+                            ? 'bg-blue-100 text-blue-700'
+                            : userDetails.profile.role === 'seeker'
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-purple-100 text-purple-700'
+                        }`}>
+                          {userDetails.profile.role === 'partner' ? 'Partner' : 
+                           userDetails.profile.role === 'seeker' ? 'Seeker' : 
+                           userDetails.profile.role.replace('_', ' ')}
+                        </div>
                       )}
                     </div>
                   </div>
 
+                  {/* Contact Information & Account Statistics */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <h4 className="font-medium text-foreground mb-3">Contact Information</h4>
-                      <div className="space-y-2">
-                        <p className="text-sm"><span className="font-medium">Email:</span> {ticket.user.email}</p>
-                        {userDetails?.profile?.phone && (
-                          <p className="text-sm"><span className="font-medium">Phone:</span> {userDetails.profile.phone}</p>
+                    {/* Contact Information Card */}
+                    <div className="bg-card border border-border rounded-lg p-5">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Icon name="Phone" size={18} className="text-primary" />
+                        <h4 className="font-semibold text-foreground">Contact Information</h4>
+                      </div>
+                      <div className="space-y-3">
+                        <div className="flex items-start gap-3">
+                          <Icon name="Mail" size={16} className="text-muted-foreground mt-0.5" />
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-0.5">Email Address</p>
+                            <p className="text-sm font-medium text-foreground">{ticket.user?.email || 'Not provided'}</p>
+                          </div>
+                        </div>
+                        {userDetails?.profile?.phone ? (
+                          <div className="flex items-start gap-3">
+                            <Icon name="Phone" size={16} className="text-muted-foreground mt-0.5" />
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-0.5">Phone Number</p>
+                              <p className="text-sm font-medium text-foreground">{userDetails.profile.phone}</p>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-start gap-3 opacity-50">
+                            <Icon name="Phone" size={16} className="text-muted-foreground mt-0.5" />
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-0.5">Phone Number</p>
+                              <p className="text-sm text-muted-foreground">Not provided</p>
+                            </div>
+                          </div>
                         )}
-                        {userDetails?.profile?.location && (
-                          <p className="text-sm"><span className="font-medium">Location:</span> {userDetails.profile.location}</p>
+                        {userDetails?.profile?.location ? (
+                          <div className="flex items-start gap-3">
+                            <Icon name="MapPin" size={16} className="text-muted-foreground mt-0.5" />
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-0.5">Location</p>
+                              <p className="text-sm font-medium text-foreground">{userDetails.profile.location}</p>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-start gap-3 opacity-50">
+                            <Icon name="MapPin" size={16} className="text-muted-foreground mt-0.5" />
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-0.5">Location</p>
+                              <p className="text-sm text-muted-foreground">Not provided</p>
+                            </div>
+                          </div>
                         )}
                       </div>
                     </div>
 
-                    <div>
-                      <h4 className="font-medium text-foreground mb-3">Account Statistics</h4>
-                      <div className="space-y-2">
-                        <p className="text-sm"><span className="font-medium">Total Bookings:</span> {userDetails?.bookingsCount || 0}</p>
-                        <p className="text-sm"><span className="font-medium">Total Spent:</span> A${(userDetails?.totalSpent || 0).toFixed(2)}</p>
-                        <p className="text-sm"><span className="font-medium">Support Tickets:</span> {userDetails?.ticketCount || 0}</p>
-                        <p className="text-sm"><span className="font-medium">Account Status:</span> {userDetails?.accountStatus || 'Active'}</p>
-                        {userDetails?.profile?.role && (
-                          <p className="text-sm"><span className="font-medium">User Role:</span> <span className="capitalize">{userDetails.profile.role.replace('_', ' ')}</span></p>
+                    {/* Account Statistics Card */}
+                    <div className="bg-card border border-border rounded-lg p-5">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Icon name="BarChart3" size={18} className="text-primary" />
+                        <h4 className="font-semibold text-foreground">Account Statistics</h4>
+                      </div>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                          <div className="flex items-center gap-2">
+                            <Icon name="Calendar" size={16} className="text-muted-foreground" />
+                            <span className="text-sm text-muted-foreground">Total Bookings</span>
+                          </div>
+                          <span className="text-lg font-semibold text-foreground">{userDetails?.bookingsCount || 0}</span>
+                        </div>
+                        {(userDetails?.seekerBookingsCount > 0 || userDetails?.partnerBookingsCount > 0) && (
+                          <div className="pl-4 space-y-2 text-xs">
+                            {userDetails?.seekerBookingsCount > 0 && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-muted-foreground flex items-center gap-1">
+                                  <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                                  As Seeker
+                                </span>
+                                <span className="font-medium">{userDetails.seekerBookingsCount}</span>
+                              </div>
+                            )}
+                            {userDetails?.partnerBookingsCount > 0 && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-muted-foreground flex items-center gap-1">
+                                  <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                                  As Partner
+                                </span>
+                                <span className="font-medium">{userDetails.partnerBookingsCount}</span>
+                              </div>
+                            )}
+                          </div>
                         )}
+                        {userDetails?.totalSpent > 0 && (
+                          <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                            <div className="flex items-center gap-2">
+                              <Icon name="DollarSign" size={16} className="text-muted-foreground" />
+                              <span className="text-sm text-muted-foreground">Total Spent (as Seeker)</span>
+                            </div>
+                            <span className="text-lg font-semibold text-green-600">
+                              A${(userDetails?.totalSpent || 0).toFixed(2)}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                          <div className="flex items-center gap-2">
+                            <Icon name="MessageSquare" size={16} className="text-muted-foreground" />
+                            <span className="text-sm text-muted-foreground">Support Tickets</span>
+                          </div>
+                          <span className="text-lg font-semibold text-foreground">{userDetails?.ticketCount || 0}</span>
+                        </div>
+                        <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                          <div className="flex items-center gap-2">
+                            <Icon name="CheckCircle" size={16} className="text-muted-foreground" />
+                            <span className="text-sm text-muted-foreground">Account Status</span>
+                          </div>
+                          <span className={`text-sm font-medium px-2 py-1 rounded ${
+                            userDetails?.accountStatus === 'Active' 
+                              ? 'bg-green-100 text-green-700'
+                              : 'bg-gray-100 text-gray-700'
+                          }`}>
+                            {userDetails?.accountStatus || 'Active'}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
+
+                  {/* Recent Activities */}
+                  {userDetails?.recentActivities && userDetails.recentActivities.length > 0 && (
+                    <div className="bg-card border border-border rounded-lg p-5">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2">
+                          <Icon name="Activity" size={18} className="text-primary" />
+                          <h4 className="font-semibold text-foreground">Recent Activities</h4>
+                          <span className="text-xs text-muted-foreground">
+                            ({showAllActivities ? userDetails.recentActivities.length : Math.min(10, userDetails.recentActivities.length)} of {userDetails.recentActivities.length})
+                          </span>
+                        </div>
+                        {userDetails.recentActivities.length > 10 && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowAllActivities(!showAllActivities)}
+                            className="flex items-center gap-2"
+                          >
+                            <Icon name={showAllActivities ? "ChevronUp" : "ChevronDown"} size={14} />
+                            {showAllActivities ? 'Show Less' : 'View More'}
+                          </Button>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        {(showAllActivities ? userDetails.recentActivities : userDetails.recentActivities.slice(0, 10)).map((activity) => {
+                          const getActivityIcon = () => {
+                            switch (activity.type) {
+                              case 'booking': return 'Calendar';
+                              case 'payment': return 'DollarSign';
+                              case 'review': return 'Star';
+                              case 'listing_created': return 'Plus';
+                              case 'listing_updated': return 'Edit';
+                              case 'payout_request': return 'CreditCard';
+                              case 'earning': return 'TrendingUp';
+                              case 'favorite': return 'Heart';
+                              case 'status_change': return 'Shield';
+                              case 'ticket': return 'MessageSquare';
+                              default: return 'Circle';
+                            }
+                          };
+
+                          const getActivityColor = () => {
+                            switch (activity.type) {
+                              case 'booking': return 'text-blue-600 bg-blue-100';
+                              case 'payment': return 'text-green-600 bg-green-100';
+                              case 'review': return 'text-yellow-600 bg-yellow-100';
+                              case 'listing_created': return 'text-purple-600 bg-purple-100';
+                              case 'listing_updated': return 'text-indigo-600 bg-indigo-100';
+                              case 'payout_request': return 'text-cyan-600 bg-cyan-100';
+                              case 'earning': return 'text-emerald-600 bg-emerald-100';
+                              case 'favorite': return 'text-pink-600 bg-pink-100';
+                              case 'status_change': return 'text-red-600 bg-red-100';
+                              case 'ticket': return 'text-orange-600 bg-orange-100';
+                              default: return 'text-gray-600 bg-gray-100';
+                            }
+                          };
+
+                          return (
+                            <div key={`${activity.type}-${activity.id}`} className="flex items-center justify-between p-4 bg-muted rounded-lg border border-border hover:bg-muted/80 transition-colors">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <div className={`p-1.5 rounded ${getActivityColor()}`}>
+                                    <Icon name={getActivityIcon()} size={14} />
+                                  </div>
+                                  <p className="font-medium text-foreground">{activity.title}</p>
+                                  {activity.role && (
+                                    <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                      activity.role === 'seeker' 
+                                        ? 'bg-green-100 text-green-700'
+                                        : activity.role === 'partner'
+                                        ? 'bg-blue-100 text-blue-700'
+                                        : 'bg-gray-100 text-gray-700'
+                                    }`}>
+                                      {activity.role === 'seeker' ? 'Seeker' : activity.role === 'partner' ? 'Partner' : activity.role}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-3 text-sm text-muted-foreground ml-8">
+                                  <span className="flex items-center gap-1">
+                                    <Icon name="Clock" size={12} />
+                                    {formatTimestamp(activity.timestamp).relativeTime}
+                                  </span>
+                                  {activity.description && (
+                                    <span className="text-xs">{activity.description}</span>
+                                  )}
+                                </div>
+                              </div>
+                              {activity.amount && activity.amount > 0 && (
+                                <div className="text-right ml-4">
+                                  <p className="text-xs text-muted-foreground mb-0.5">Amount</p>
+                                  <p className="text-lg font-semibold text-foreground">
+                                    A${activity.amount.toFixed(2)}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Previous Tickets */}
+                  {previousTickets.length > 0 && (
+                    <div className="bg-card border border-border rounded-lg p-5">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Icon name="MessageSquare" size={18} className="text-primary" />
+                        <h4 className="font-semibold text-foreground">Previous Support Tickets</h4>
+                        <span className="text-xs text-muted-foreground">(Last 5 tickets)</span>
+                      </div>
+                      <div className="space-y-2">
+                        {previousTickets.map((prevTicket) => (
+                          <div key={prevTicket.id} className="flex items-center justify-between p-4 bg-muted rounded-lg border border-border hover:bg-muted/80 transition-colors">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <Icon name="Ticket" size={14} className="text-muted-foreground" />
+                                <p className="font-medium text-foreground">{prevTicket.subject || 'No subject'}</p>
+                              </div>
+                              <div className="flex items-center gap-3 text-sm text-muted-foreground ml-6">
+                                <span className="font-mono text-xs">{prevTicket.ticket_id}</span>
+                                <span className="flex items-center gap-1">
+                                  <Icon name="Clock" size={12} />
+                                  {formatTimestamp(prevTicket.created_at).relativeTime}
+                                </span>
+                              </div>
+                            </div>
+                            <span className={`text-xs font-medium px-3 py-1 rounded-full ${
+                              prevTicket.status === 'resolved' || prevTicket.status === 'closed'
+                                ? 'bg-green-100 text-green-700'
+                                : prevTicket.status === 'in-progress'
+                                ? 'bg-blue-100 text-blue-700'
+                                : 'bg-yellow-100 text-yellow-700'
+                            }`}>
+                              {prevTicket.status}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Loading State */}
+                  {!userDetails && (
+                    <div className="text-center py-12">
+                      <LoadingSpinner text="Loading user details..." />
+                    </div>
+                  )}
+
+                  {/* Empty State */}
+                  {userDetails && 
+                   (!userDetails.recentActivities || userDetails.recentActivities.length === 0) && 
+                   previousTickets.length === 0 && (
+                    <div className="bg-card border border-border rounded-lg p-8 text-center">
+                      <Icon name="Info" size={48} className="text-muted-foreground mx-auto mb-4" />
+                      <h4 className="font-medium text-foreground mb-2">No Additional Information</h4>
+                      <p className="text-sm text-muted-foreground">
+                        This user has no recent activities or previous support tickets.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -696,7 +1373,7 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
                               {note.admin_profiles ? `${note.admin_profiles.first_name || ''} ${note.admin_profiles.last_name || ''}`.trim() : 'Support Agent'}
                             </span>
                             <span className="text-sm text-muted-foreground">
-                              {formatTimestamp(note.created_at)}
+                              {formatTimestamp(note.created_at).formatted}
                             </span>
                           </div>
                           <p className="text-sm text-foreground">{note.note}</p>
@@ -724,61 +1401,230 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
 
               {activeTab === 'related' && (
                 <div className="space-y-6">
+                  {/* Related Booking (if ticket is linked to a specific booking) */}
                   {ticket.bookingId && (
-                    <div>
-                      <h4 className="font-medium text-foreground mb-3">Related Bookings</h4>
-                      <div className="space-y-2">
-                        {relatedBookings.length === 0 ? (
-                          <p className="text-muted-foreground">Loading related bookings...</p>
-                        ) : (
-                          relatedBookings.map((booking) => (
-                            <div key={booking.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                              <div>
-                                <p className="font-medium text-foreground">{booking.spaceName}</p>
-                                <p className="text-sm text-muted-foreground">
-                                  {booking.booking_reference} • {booking.date}
-                                </p>
-                              </div>
-                              <div className="text-right">
-                                <p className="font-medium text-foreground">{booking.amount}</p>
-                                <span className="text-xs text-green-600 bg-green-100 px-2 py-1 rounded-full">
-                                  {booking.status}
+                    <div className="bg-card border border-border rounded-lg p-5">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Icon name="Link" size={18} className="text-primary" />
+                        <h4 className="font-semibold text-foreground">Ticket-Related Booking</h4>
+                        <span className="text-xs text-muted-foreground bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                          Directly linked
+                        </span>
+                      </div>
+                      {relatedBookings.length > 0 ? (
+                        <div className="space-y-3">
+                          {relatedBookings.map((booking) => (
+                            <div key={booking.id} className="p-4 bg-muted rounded-lg border border-border">
+                              <div className="flex items-start justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                  <Icon name="Building" size={18} className="text-primary" />
+                                  <div>
+                                    <p className="font-semibold text-foreground">{booking.spaceName || 'Unknown Space'}</p>
+                                    <p className="text-xs text-muted-foreground font-mono mt-0.5">
+                                      {booking.booking_reference || 'No reference'}
+                                    </p>
+                                  </div>
+                                </div>
+                                <span className={`text-xs font-medium px-3 py-1 rounded-full ${
+                                  booking.status === 'confirmed' || booking.status === 'completed'
+                                    ? 'bg-green-100 text-green-700'
+                                    : booking.status === 'cancelled'
+                                    ? 'bg-red-100 text-red-700'
+                                    : 'bg-yellow-100 text-yellow-700'
+                                }`}>
+                                  {booking.status || 'Unknown'}
                                 </span>
                               </div>
+                              <div className="grid grid-cols-2 gap-4 mt-4">
+                                <div className="flex items-start gap-2">
+                                  <Icon name="DollarSign" size={16} className="text-muted-foreground mt-0.5" />
+                                  <div>
+                                    <p className="text-xs text-muted-foreground mb-0.5">Booking Amount</p>
+                                    <p className="text-sm font-semibold text-foreground">
+                                      {booking.amount || 'A$0.00'}
+                                    </p>
+                                  </div>
+                                </div>
+                                {booking.date && (
+                                  <div className="flex items-start gap-2">
+                                    <Icon name="Calendar" size={16} className="text-muted-foreground mt-0.5" />
+                                    <div>
+                                      <p className="text-xs text-muted-foreground mb-0.5">Date</p>
+                                      <p className="text-sm font-medium text-foreground">{booking.date}</p>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                          ))
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-8">
+                          <LoadingSpinner text="Loading booking details..." />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Recent Activities from User Details */}
+                  {userDetails?.recentActivities && userDetails.recentActivities.length > 0 && (
+                    <div className="bg-card border border-border rounded-lg p-5">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2">
+                          <Icon name="Activity" size={18} className="text-primary" />
+                          <h4 className="font-semibold text-foreground">User's Recent Activities</h4>
+                          <span className="text-xs text-muted-foreground">
+                            ({showAllActivities ? userDetails.recentActivities.length : Math.min(10, userDetails.recentActivities.length)} of {userDetails.recentActivities.length})
+                          </span>
+                        </div>
+                        {userDetails.recentActivities.length > 10 && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowAllActivities(!showAllActivities)}
+                            className="flex items-center gap-2"
+                          >
+                            <Icon name={showAllActivities ? "ChevronUp" : "ChevronDown"} size={14} />
+                            {showAllActivities ? 'Show Less' : 'View More'}
+                          </Button>
                         )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mb-3">
+                        Recent bookings, payments, reviews, listings, payout requests, and other activities by this user.
+                      </p>
+                      <div className="space-y-2">
+                        {(showAllActivities ? userDetails.recentActivities : userDetails.recentActivities.slice(0, 10)).map((activity) => {
+                          const getActivityIcon = () => {
+                            switch (activity.type) {
+                              case 'booking': return 'Calendar';
+                              case 'payment': return 'DollarSign';
+                              case 'review': return 'Star';
+                              case 'listing_created': return 'Plus';
+                              case 'listing_updated': return 'Edit';
+                              case 'payout_request': return 'CreditCard';
+                              case 'earning': return 'TrendingUp';
+                              case 'favorite': return 'Heart';
+                              case 'status_change': return 'Shield';
+                              case 'ticket': return 'MessageSquare';
+                              default: return 'Circle';
+                            }
+                          };
+
+                          const getActivityColor = () => {
+                            switch (activity.type) {
+                              case 'booking': return 'text-blue-600 bg-blue-100';
+                              case 'payment': return 'text-green-600 bg-green-100';
+                              case 'review': return 'text-yellow-600 bg-yellow-100';
+                              case 'listing_created': return 'text-purple-600 bg-purple-100';
+                              case 'listing_updated': return 'text-indigo-600 bg-indigo-100';
+                              case 'payout_request': return 'text-cyan-600 bg-cyan-100';
+                              case 'earning': return 'text-emerald-600 bg-emerald-100';
+                              case 'favorite': return 'text-pink-600 bg-pink-100';
+                              case 'status_change': return 'text-red-600 bg-red-100';
+                              case 'ticket': return 'text-orange-600 bg-orange-100';
+                              default: return 'text-gray-600 bg-gray-100';
+                            }
+                          };
+
+                          return (
+                            <div key={`${activity.type}-${activity.id}`} className="flex items-center justify-between p-4 bg-muted rounded-lg border border-border hover:bg-muted/80 transition-colors">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <div className={`p-1.5 rounded ${getActivityColor()}`}>
+                                    <Icon name={getActivityIcon()} size={14} />
+                                  </div>
+                                  <p className="font-medium text-foreground">{activity.title}</p>
+                                  {activity.role && (
+                                    <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                      activity.role === 'seeker' 
+                                        ? 'bg-green-100 text-green-700'
+                                        : activity.role === 'partner'
+                                        ? 'bg-blue-100 text-blue-700'
+                                        : 'bg-gray-100 text-gray-700'
+                                    }`}>
+                                      {activity.role === 'seeker' ? 'Seeker' : activity.role === 'partner' ? 'Partner' : activity.role}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-3 text-sm text-muted-foreground ml-8">
+                                  <span className="flex items-center gap-1">
+                                    <Icon name="Clock" size={12} />
+                                    {formatTimestamp(activity.timestamp).relativeTime}
+                                  </span>
+                                  {activity.description && (
+                                    <span className="text-xs">{activity.description}</span>
+                                  )}
+                                </div>
+                              </div>
+                              {activity.amount && activity.amount > 0 && (
+                                <div className="text-right ml-4">
+                                  <p className="text-xs text-muted-foreground mb-0.5">Amount</p>
+                                  <p className="text-lg font-semibold text-foreground">
+                                    A${activity.amount.toFixed(2)}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
 
-                  {!ticket.bookingId && (
-                    <div>
-                      <h4 className="font-medium text-foreground mb-3">Related Bookings</h4>
-                      <p className="text-muted-foreground">No booking associated with this ticket</p>
+                  {/* Previous Tickets */}
+                  {previousTickets.length > 0 && (
+                    <div className="bg-card border border-border rounded-lg p-5">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Icon name="MessageSquare" size={18} className="text-primary" />
+                        <h4 className="font-semibold text-foreground">Previous Support Tickets</h4>
+                        <span className="text-xs text-muted-foreground">(Last 5 tickets)</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mb-3">
+                        History of previous support interactions with this user.
+                      </p>
+                      <div className="space-y-2">
+                        {previousTickets.map((prevTicket) => (
+                          <div key={prevTicket.id} className="flex items-center justify-between p-4 bg-muted rounded-lg border border-border hover:bg-muted/80 transition-colors">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <Icon name="Ticket" size={14} className="text-muted-foreground" />
+                                <p className="font-medium text-foreground">{prevTicket.subject || 'No subject'}</p>
+                              </div>
+                              <div className="flex items-center gap-3 text-sm text-muted-foreground ml-6">
+                                <span className="font-mono text-xs">{prevTicket.ticket_id}</span>
+                                <span className="flex items-center gap-1">
+                                  <Icon name="Clock" size={12} />
+                                  {formatTimestamp(prevTicket.created_at).relativeTime}
+                                </span>
+                              </div>
+                            </div>
+                            <span className={`text-xs font-medium px-3 py-1 rounded-full ${
+                              prevTicket.status === 'resolved' || prevTicket.status === 'closed'
+                                ? 'bg-green-100 text-green-700'
+                                : prevTicket.status === 'in-progress'
+                                ? 'bg-blue-100 text-blue-700'
+                                : 'bg-yellow-100 text-yellow-700'
+                            }`}>
+                              {prevTicket.status}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
 
-                  <div>
-                    <h4 className="font-medium text-foreground mb-3">Previous Tickets</h4>
-                    <div className="space-y-2">
-                      {previousTickets.length === 0 ? (
-                        <p className="text-muted-foreground">No previous tickets</p>
-                      ) : (
-                        previousTickets.map((prevTicket) => (
-                          <div key={prevTicket.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                            <div>
-                              <p className="font-medium text-foreground">{prevTicket.subject}</p>
-                              <p className="text-sm text-muted-foreground">#{prevTicket.ticket_id || prevTicket.id} • {prevTicket.status}</p>
-                            </div>
-                            <span className="text-sm text-muted-foreground">
-                              {formatTimestamp(prevTicket.created_at)}
-                            </span>
-                          </div>
-                        ))
-                      )}
+                  {/* Empty State */}
+                  {!ticket.bookingId && 
+                   (!userDetails?.recentActivities || userDetails.recentActivities.length === 0) && 
+                   previousTickets.length === 0 && (
+                    <div className="bg-card border border-border rounded-lg p-12 text-center">
+                      <Icon name="Link" size={48} className="text-muted-foreground mx-auto mb-4" />
+                      <h3 className="text-lg font-medium text-foreground mb-2">No Related Items</h3>
+                      <p className="text-sm text-muted-foreground">
+                        This ticket is not linked to any booking, and the user has no recent activities or previous support tickets.
+                      </p>
                     </div>
-                  </div>
+                  )}
                 </div>
               )}
             </div>
@@ -827,11 +1673,11 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Created:</span>
-                  <span className="text-foreground">{formatTimestamp(ticket.createdAt)}</span>
+                  <span className="text-foreground">{formatTimestamp(ticket.createdAt).formatted}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Last Updated:</span>
-                  <span className="text-foreground">{formatTimestamp(ticket.lastUpdated)}</span>
+                  <span className="text-foreground">{formatTimestamp(ticket.lastUpdated).formatted}</span>
                 </div>
               </div>
             </div>

@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import NotificationService from '../services/notificationService'
+import { playNotificationSound, isSoundNotificationEnabled } from '../utils/soundNotification'
+import EmailNotificationService from '../services/emailNotificationService'
 
 export const useNotifications = () => {
   const [notifications, setNotifications] = useState([])
@@ -9,6 +11,20 @@ export const useNotifications = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const { user } = useAuth()
+  
+  // Track notifications that have already played sound to prevent duplicate sounds
+  // Use useRef to persist across renders
+  const soundPlayedForNotifications = useRef(new Set())
+  
+  // Helper function to check and mark sound as played
+  const playSoundIfNotPlayed = useCallback((notificationId) => {
+    if (soundPlayedForNotifications.current.has(notificationId)) {
+      console.log('🔇 Sound already played for notification:', notificationId)
+      return false
+    }
+    soundPlayedForNotifications.current.add(notificationId)
+    return true
+  }, [])
 
       const fetchNotifications = useCallback(async () => {
     if (!user?.id) return
@@ -23,7 +39,58 @@ export const useNotifications = () => {
         // Calculate unread count BEFORE updating state to ensure accuracy
         const unread = result.data.filter(n => !n.read).length
         
-        setNotifications(result.data)
+        // Store previous state for comparison
+        setNotifications(prev => {
+          // Check if there are new unread notifications (for sound playback)
+          // This handles the case where real-time isn't working
+          const previousUnreadCount = prev.filter(n => !n.read).length
+          const hasNewNotifications = result.data.length > prev.length
+          const hasNewUnread = unread > previousUnreadCount
+          
+          if (hasNewNotifications && hasNewUnread) {
+            // Find the newest notification that wasn't in the previous list
+            const newNotifications = result.data.filter(n => 
+              !prev.some(pn => pn.id === n.id) && !n.read
+            )
+            
+            if (newNotifications.length > 0) {
+              const newestNotification = newNotifications[0]
+              console.log('🔔 New notification detected via fetch (real-time may not be working):', newestNotification.id)
+              
+              // Play sound notification if enabled (only once per notification)
+              const notificationId = newestNotification.id
+              
+              // Check if we've already played sound for this notification
+              if (!soundPlayedForNotifications.current.has(notificationId)) {
+                soundPlayedForNotifications.current.add(notificationId)
+                
+                // Play sound notification if enabled (use setTimeout to avoid blocking state update)
+                setTimeout(() => {
+                  console.log('🔊 Checking sound notification preference...')
+                  isSoundNotificationEnabled(user.id).then(enabled => {
+                    console.log('🔊 Sound notification enabled:', enabled)
+                    if (enabled) {
+                      console.log('🔊 Playing notification sound (fallback - from fetch)...')
+                      playNotificationSound()
+                    } else {
+                      console.log('🔇 Sound notifications disabled by user')
+                    }
+                  }).catch(err => {
+                    console.warn('Error checking sound notification preference:', err)
+                    // Default to playing sound if we can't check preference
+                    console.log('🔊 Playing sound (default - preference check failed)')
+                    playNotificationSound()
+                  })
+                }, 100)
+              } else {
+                console.log('🔇 Sound already played for this notification (fallback), skipping')
+              }
+            }
+          }
+          
+          return result.data
+        })
+        
         setUnreadCount(unread)
         console.log(`📊 Notification count updated: ${unread} unread out of ${result.data.length} total`)
       } else {
@@ -52,40 +119,34 @@ export const useNotifications = () => {
       const result = await NotificationService.markAsRead(notificationId)
       
       if (result.success) {
-        // For activity notifications (non-UUID), we need to refresh to get updated read state from localStorage
-        const isActivityNotification = !NotificationService.isValidUUID(notificationId)
+        // Update local state immediately for instant UI feedback
+        setNotifications(prev => {
+          const updated = prev.map(notification => 
+            notification.id === notificationId 
+              ? { 
+                  ...notification, 
+                  read: true, 
+                  read_at: result.data?.read_at || notification.read_at || new Date().toISOString() 
+                }
+              : notification
+          )
+          // Recalculate unread count from updated notifications array
+          const unread = updated.filter(n => !n.read).length
+          setUnreadCount(unread)
+          console.log(`✅ Notification marked as read. Unread count: ${unread}`)
+          return updated
+        })
         
-        if (isActivityNotification) {
-          // For activity notifications, localStorage is already updated by markAsRead
-          // Just update local state immediately - no need to refetch since read status is in localStorage
-          setNotifications(prev => {
-            const updated = prev.map(notification => 
-              notification.id === notificationId 
-                ? { ...notification, read: true, read_at: notification.read_at || new Date().toISOString() }
-                : notification
-            )
-            // Recalculate unread count immediately from updated array
-            const unread = updated.filter(n => !n.read).length
-            setUnreadCount(unread)
-            console.log(`✅ Activity notification marked as read. Unread count: ${unread}`)
-            return updated
-          })
-          // No need to refetch - localStorage persistence is handled, and local state is updated
-        } else {
-          // For database notifications, update local state immediately
-          setNotifications(prev => {
-            const updated = prev.map(notification => 
-              notification.id === notificationId 
-                ? { ...notification, read: true, read_at: notification.read_at || new Date().toISOString() }
-                : notification
-            )
-            // Recalculate unread count from updated notifications array
-            const unread = updated.filter(n => !n.read).length
-            setUnreadCount(unread)
-            console.log(`✅ Notification marked as read. Unread count: ${unread}`)
-            return updated
-          })
-        }
+        // Fallback: Refresh after a short delay to ensure consistency
+        // This handles cases where real-time events might be delayed or not fire
+        setTimeout(() => {
+          fetchNotifications()
+        }, 500)
+      } else {
+        // If marking as read failed, refresh to get accurate state
+        setTimeout(() => {
+          fetchNotifications()
+        }, 500)
       }
       
       return result
@@ -104,16 +165,7 @@ export const useNotifications = () => {
     try {
       console.log('Marking all notifications as read...')
       
-      // Get all activity notification IDs and mark them as read in localStorage FIRST
-      const activityNotificationIds = notifications
-        .filter(n => !NotificationService.isValidUUID(n.id))
-        .map(n => n.id)
-      
-      if (activityNotificationIds.length > 0) {
-        NotificationService.markAllActivityNotificationsRead(user.id, activityNotificationIds)
-      }
-      
-      // Mark all real notifications (from database) as read
+      // Mark all notifications (regular and admin activity) as read in database
       const result = await NotificationService.markAllAsRead(user.id)
       
       // Update local state immediately
@@ -129,26 +181,19 @@ export const useNotifications = () => {
       
       // Reset unread count immediately
       setUnreadCount(0)
+      console.log('✅ All notifications marked as read. Count reset to 0')
       
-      // Refresh after a short delay to ensure consistency with database and localStorage
+      // Refresh after a short delay to ensure consistency with database
       // This ensures any new notifications that came in during the mark-all operation are included
       setTimeout(() => {
         fetchNotifications()
-      }, 300)
+      }, 500)
       
       // Return success even if database update failed, since we updated local state
       return { success: true, data: result.data || [] }
     } catch (err) {
       console.error('Error marking all notifications as read:', err)
       // Still update local state even if database update fails
-      const activityNotificationIds = notifications
-        .filter(n => !NotificationService.isValidUUID(n.id))
-        .map(n => n.id)
-      
-      if (activityNotificationIds.length > 0) {
-        NotificationService.markAllActivityNotificationsRead(user.id, activityNotificationIds)
-      }
-      
       setNotifications(prev => {
         return prev.map(notification => ({
           ...notification, 
@@ -264,27 +309,116 @@ export const useNotifications = () => {
       }
     }
 
-    // Set up real-time subscription for database notifications
+    // Set up real-time subscription for database notifications (both regular and admin activity)
     const subscription = NotificationService.subscribeToNotifications(
       user.id,
       (payload) => {
-        console.log('New notification received:', payload)
+        console.log('🔔 Notification event received:', payload)
+        console.log('Event type:', payload.eventType, 'Has old:', !!payload.old, 'Has new:', !!payload.new)
         
         if (payload?.new) {
           const notification = payload.new
+          // Check if this is an UPDATE event (either by eventType or presence of old property)
+          const isUpdate = payload.eventType === 'UPDATE' || payload.old !== undefined
           
-          // Add new notification to the list
-          setNotifications(prev => {
-            // Check if notification already exists to avoid duplicates
-            const exists = prev.some(n => n.id === notification.id)
-            if (exists) return prev
-            return [notification, ...prev]
-          })
-          // Update unread count
-          setUnreadCount(prev => prev + 1)
-          
-          // Show browser push notification
-          showBrowserNotification(notification)
+          if (isUpdate) {
+            // This is an UPDATE event (e.g., notification marked as read)
+            console.log('Notification updated:', notification.id, 'read:', notification.read)
+            
+            setNotifications(prev => {
+              // Check if notification exists and if the read status actually changed
+              const existing = prev.find(n => n.id === notification.id)
+              if (existing && existing.read === notification.read) {
+                // No change needed, already in correct state
+                return prev
+              }
+              
+              const updated = prev.map(n => 
+                n.id === notification.id 
+                  ? { ...n, read: notification.read, read_at: notification.read_at }
+                  : n
+              )
+              
+              // Recalculate unread count from updated array
+              const unread = updated.filter(n => !n.read).length
+              setUnreadCount(unread)
+              console.log(`📊 Real-time count update: ${unread} unread`)
+              
+              return updated
+            })
+          } else {
+            // This is an INSERT event (new notification)
+            console.log('New notification received:', notification.id)
+            
+            // Add new notification to the list
+            setNotifications(prev => {
+              // Check if notification already exists to avoid duplicates
+              const exists = prev.some(n => n.id === notification.id)
+              if (exists) return prev
+              
+              const updated = [notification, ...prev]
+              
+              // Recalculate unread count (new notification is unread by default)
+              const unread = updated.filter(n => !n.read).length
+              setUnreadCount(unread)
+              
+              return updated
+            })
+            
+            // Show browser push notification only for new notifications
+            showBrowserNotification(notification)
+            
+            // Play sound notification if enabled (only once per notification)
+            if (!soundPlayedForNotifications.current.has(notification.id)) {
+              soundPlayedForNotifications.current.add(notification.id)
+              console.log('🔊 Checking sound notification preference...')
+              isSoundNotificationEnabled(user.id).then(enabled => {
+                console.log('🔊 Sound notification enabled:', enabled)
+                if (enabled) {
+                  console.log('🔊 Playing notification sound...')
+                  playNotificationSound()
+                } else {
+                  console.log('🔇 Sound notifications disabled by user')
+                }
+              }).catch(err => {
+                console.warn('Error checking sound notification preference:', err)
+                // Default to playing sound if we can't check preference
+                console.log('🔊 Playing sound (default - preference check failed)')
+                playNotificationSound()
+              })
+            } else {
+              console.log('🔇 Sound already played for this notification, skipping')
+            }
+            
+            // Send email notification if this is a pending listing or new ticket notification
+            // This triggers email notifications immediately when the notification is received
+            if (notification.activity_type) {
+              const activityType = notification.activity_type;
+              const data = notification.data || {};
+              
+              if (activityType === 'listing_pending' || activityType === 'listing_resubmitted') {
+                // Send email for pending listing
+                const listingId = data.listing_id;
+                if (listingId) {
+                  console.log('📧 Sending email notification for pending listing:', listingId);
+                  EmailNotificationService.sendPendingListingNotificationImmediate(listingId)
+                    .catch(err => {
+                      console.error('Error sending pending listing email:', err);
+                    });
+                }
+              } else if (activityType === 'ticket') {
+                // Send email for new support ticket
+                const ticketId = data.ticket_id;
+                if (ticketId) {
+                  console.log('📧 Sending email notification for new ticket:', ticketId);
+                  EmailNotificationService.sendNewTicketNotificationImmediate(ticketId)
+                    .catch(err => {
+                      console.error('Error sending new ticket email:', err);
+                    });
+                }
+              }
+            }
+          }
         }
       }
     )

@@ -707,20 +707,21 @@ export const useActivityFeed = () => {
       })
 
       // Process MESSAGES (First messages in conversations)
-      messages.forEach(message => {
-        // Only show first messages (to avoid spam)
-        activitiesList.push({
-          id: `message_${message.id}`,
-          type: 'message_sent',
-          title: 'New Message Sent',
-          description: `${message.profiles?.first_name || ''} ${message.profiles?.last_name || ''}`.trim() || 'User' + 
-                      ` sent a message${message.content ? `: ${message.content.substring(0, 50)}${message.content.length > 50 ? '...' : ''}` : ''}`,
-          avatar: message.profiles?.avatar_url || '/assets/images/no_image.png',
-          timestamp: message.created_at,
-          priority: 'low',
-          raw: message
-        })
-      })
+      // DISABLED: Message sent activities removed from recent activities feed
+      // messages.forEach(message => {
+      //   // Only show first messages (to avoid spam)
+      //   activitiesList.push({
+      //     id: `message_${message.id}`,
+      //     type: 'message_sent',
+      //     title: 'New Message Sent',
+      //     description: `${message.profiles?.first_name || ''} ${message.profiles?.last_name || ''}`.trim() || 'User' + 
+      //                 ` sent a message${message.content ? `: ${message.content.substring(0, 50)}${message.content.length > 50 ? '...' : ''}` : ''}`,
+      //     avatar: message.profiles?.avatar_url || '/assets/images/no_image.png',
+      //     timestamp: message.created_at,
+      //     priority: 'low',
+      //     raw: message
+      //   })
+      // })
 
       // Process CONTENT REPORTS
       contentReports.forEach(report => {
@@ -909,10 +910,12 @@ export const useActivityFeed = () => {
       const sortedActivities = activitiesList
         .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
       
-      // Remove duplicates by ID
-      const uniqueActivities = sortedActivities.filter((activity, index, self) =>
-        index === self.findIndex(a => a.id === activity.id)
-      )
+      // Remove duplicates by ID and filter out message_sent activities
+      const uniqueActivities = sortedActivities
+        .filter(activity => activity.type !== 'message_sent') // Remove "New Message Sent" activities
+        .filter((activity, index, self) =>
+          index === self.findIndex(a => a.id === activity.id)
+        )
 
       setAllActivities(uniqueActivities)
       setDisplayedActivities(uniqueActivities.slice(0, 4)) // Always start with 4

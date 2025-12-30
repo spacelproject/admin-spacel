@@ -7,6 +7,7 @@ import Select from './Select';
 import { Checkbox } from './Checkbox';
 import Icon from '../AppIcon';
 import { logDebug, logError } from '../../utils/logger';
+import { playNotificationSound } from '../../utils/soundNotification';
 
 const PreferencesModal = ({ isOpen, onClose }) => {
   const { user } = useAuth();
@@ -19,6 +20,7 @@ const PreferencesModal = ({ isOpen, onClose }) => {
     notifications_enabled: true,
     email_notifications: true,
     push_notifications: false,
+    sound_notifications: true,
     currency: 'USD',
     timezone: 'UTC'
   });
@@ -52,6 +54,7 @@ const PreferencesModal = ({ isOpen, onClose }) => {
           notifications_enabled: preferences.notifications_enabled ?? true,
           email_notifications: preferences.email_notifications ?? true,
           push_notifications: preferences.push_notifications ?? false,
+          sound_notifications: preferences.sound_notifications ?? true,
           currency: preferences.currency || 'USD',
           timezone: preferences.timezone || 'UTC'
         });
@@ -92,6 +95,7 @@ const PreferencesModal = ({ isOpen, onClose }) => {
           notifications_enabled: formData.notifications_enabled,
           email_notifications: formData.email_notifications,
           push_notifications: formData.push_notifications,
+          sound_notifications: formData.sound_notifications,
           currency: formData.currency,
           timezone: formData.timezone,
           updated_at: new Date().toISOString()
@@ -247,6 +251,33 @@ const PreferencesModal = ({ isOpen, onClose }) => {
                     disabled={!formData.notifications_enabled}
                     description="Receive browser push notifications"
                   />
+
+                  <div className="flex items-start gap-3">
+                    <div className="flex-1">
+                      <Checkbox
+                        label="Sound Notifications"
+                        name="sound_notifications"
+                        checked={formData.sound_notifications}
+                        onChange={handleInputChange}
+                        disabled={!formData.notifications_enabled}
+                        description="Play a sound when new notifications arrive"
+                      />
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        playNotificationSound();
+                        showToast('Playing test sound...', 'info');
+                      }}
+                      disabled={!formData.notifications_enabled}
+                      className="mt-0.5 shrink-0"
+                      iconName="Volume2"
+                    >
+                      Test
+                    </Button>
+                  </div>
                 </div>
               </div>
             </>

@@ -208,7 +208,7 @@ const SupportAgentTickets = () => {
         .subscribe()
 
       // Realtime subscription for replies to my tickets
-      // Refresh to update unread counts
+      // Refresh to update unread counts and show new messages
       const repliesChannel = supabase
         .channel('support_replies_my_tickets')
         .on('postgres_changes', { 
@@ -216,10 +216,22 @@ const SupportAgentTickets = () => {
           schema: 'public', 
           table: 'support_ticket_replies'
         }, async (payload) => {
-          // Refresh to update unread counts and stats
-          fetchMyTickets()
+          console.log('🔄 New reply received in tickets list:', payload.eventType);
+          // Only refresh if it's a new message (INSERT) to avoid unnecessary refreshes
+          if (payload.eventType === 'INSERT') {
+            // Refresh to update unread counts and stats
+            // The modal will handle its own real-time updates
+            fetchMyTickets()
+          }
         })
-        .subscribe()
+        .subscribe((status) => {
+          console.log('🔔 Tickets list replies subscription status:', status);
+          if (status === 'SUBSCRIBED') {
+            console.log('✅ Successfully subscribed to real-time replies for tickets list');
+          } else if (status === 'CHANNEL_ERROR') {
+            console.error('❌ Error subscribing to real-time replies for tickets list');
+          }
+        })
 
       return () => { 
         ticketsChannel.unsubscribe()
