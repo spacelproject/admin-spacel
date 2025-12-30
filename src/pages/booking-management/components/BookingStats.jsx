@@ -33,7 +33,7 @@ const BookingStats = ({ stats }) => {
     },
     {
       title: 'Revenue',
-      value: `$${stats.revenue.toLocaleString()}`,
+      value: `A$${(Math.round((stats.revenue || 0) * 100) / 100).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
       icon: 'DollarSign',
       color: 'text-accent',
       bgColor: 'bg-accent/10'

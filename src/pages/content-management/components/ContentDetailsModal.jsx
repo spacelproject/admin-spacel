@@ -1,8 +1,44 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
+import Image from '../../../components/AppImage';
+import useAnnouncements from '../../../hooks/useAnnouncements';
+import { useAuth } from '../../../contexts/AuthContext';
 
 const ContentDetailsModal = ({ isOpen, onClose, item, type = 'content' }) => {
+  const [viewers, setViewers] = useState([]);
+  const [loadingViewers, setLoadingViewers] = useState(false);
+  const { getAnnouncementViewers, trackAnnouncementView } = useAnnouncements();
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (isOpen && item?.id && type === 'announcement') {
+      fetchViewers();
+      // Track view when admin opens the announcement details
+      if (user?.id && item?.id) {
+        trackAnnouncementView(item.id, user.id).catch(err => {
+          console.error('Error tracking announcement view:', err);
+        });
+      }
+    } else {
+      setViewers([]);
+    }
+  }, [isOpen, item?.id, type, user?.id]);
+
+  const fetchViewers = async () => {
+    if (!item?.id) return;
+    
+    try {
+      setLoadingViewers(true);
+      const viewersData = await getAnnouncementViewers(item.id);
+      setViewers(viewersData);
+    } catch (error) {
+      console.error('Error fetching viewers:', error);
+    } finally {
+      setLoadingViewers(false);
+    }
+  };
+
   if (!isOpen || !item) return null;
 
   const formatDate = (dateString) => {
@@ -50,8 +86,8 @@ const ContentDetailsModal = ({ isOpen, onClose, item, type = 'content' }) => {
                 </label>
                 <p className="text-foreground">
                   {item?.audience === 'all_users' ? 'All Users' : 
-                   item?.audience === 'hosts_only' ? 'Hosts Only' : 
-                   item?.audience === 'guests_only'? 'Guests Only' : item?.audience ||'-'}
+                   item?.audience === 'seekers_only' ? 'Seekers Only' : 
+                   item?.audience === 'partners_only' ? 'Partners Only' : item?.audience ||'-'}
                 </p>
               </div>
               <div>
@@ -61,6 +97,70 @@ const ContentDetailsModal = ({ isOpen, onClose, item, type = 'content' }) => {
                 <p className="text-foreground">{item?.views?.toLocaleString() || '0'}</p>
               </div>
             </div>
+            
+            {/* Viewers List */}
+            {item?.views > 0 && (
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-muted-foreground mb-2">
+                  Users Who Viewed ({viewers.length})
+                </label>
+                {loadingViewers ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Icon name="Loader2" className="animate-spin text-primary" size={20} />
+                    <span className="ml-2 text-sm text-muted-foreground">Loading viewers...</span>
+                  </div>
+                ) : viewers.length > 0 ? (
+                  <div className="bg-muted/30 rounded-md p-4 max-h-60 overflow-y-auto">
+                    <div className="space-y-2">
+                      {viewers.map((viewer) => (
+                        <div
+                          key={viewer.id}
+                          className="flex items-center justify-between p-2 bg-card rounded-md border border-border"
+                        >
+                          <div className="flex items-center space-x-3">
+                            {viewer.userAvatar ? (
+                              <Image
+                                src={viewer.userAvatar}
+                                alt={viewer.userName}
+                                className="w-8 h-8 rounded-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                                <Icon name="User" size={16} className="text-primary" />
+                              </div>
+                            )}
+                            <div>
+                              <p className="text-sm font-medium text-foreground">{viewer.userName}</p>
+                              <p className="text-xs text-muted-foreground">{viewer.userEmail}</p>
+                            </div>
+                            <span className="px-2 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary capitalize">
+                              {viewer.userRole}
+                            </span>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs text-muted-foreground">
+                              {viewer.readAt 
+                                ? new Date(viewer.readAt).toLocaleDateString('en-US', {
+                                    month: 'short',
+                                    day: 'numeric',
+                                    year: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                  })
+                                : 'Unknown'
+                              }
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No viewers yet</p>
+                )}
+              </div>
+            )}
+            
             {item?.scheduledDate && (
               <div className="mb-6">
                 <label className="block text-sm font-medium text-muted-foreground mb-1">

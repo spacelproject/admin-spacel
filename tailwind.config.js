@@ -89,20 +89,22 @@ module.exports = {
         '240': '60rem'
       },
       width: {
-        'sidebar': '240px',
+        // Slightly narrower admin sidebar for more canvas space
+        'sidebar': '224px',
         'sidebar-collapsed': '60px'
       },
       height: {
         'header': '64px'
       },
       margin: {
-        'sidebar': '240px',
+        'sidebar': '224px',
         'sidebar-collapsed': '60px'
       },
       zIndex: {
         'sidebar': '100',
         'header': '200',
         'dropdown': '300',
+        'toast': '9999',
         'modal': '1000'
       },
       boxShadow: {

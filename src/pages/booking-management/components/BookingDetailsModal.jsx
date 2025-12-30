@@ -1,43 +1,51 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Icon from '../../../components/AppIcon';
 import Image from '../../../components/AppImage';
 import Button from '../../../components/ui/Button';
 import BookingStatusBadge from './BookingStatusBadge';
 import PaymentStatusBadge from './PaymentStatusBadge';
+import BookingNotesSection from './BookingNotesSection';
+import BookingModificationHistory from './BookingModificationHistory';
+import BookingTagsSection from './BookingTagsSection';
 
-const BookingDetailsModal = ({ booking, isOpen, onClose }) => {
+const BookingDetailsModal = ({ 
+  booking, 
+  isOpen, 
+  onClose,
+  onUpdateStatus,
+  onProcessRefund,
+  onSendMessage,
+  onViewHistory
+}) => {
   const [activeTab, setActiveTab] = useState('details');
+
+  // Focus management for accessibility
+  useEffect(() => {
+    if (isOpen) {
+      const firstButton = document.querySelector('[data-booking-modal] button');
+      firstButton?.focus();
+    }
+  }, [isOpen]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleEscape = (e) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isOpen, onClose]);
 
   if (!isOpen || !booking) return null;
 
   const tabs = [
     { id: 'details', label: 'Booking Details', icon: 'FileText' },
     { id: 'payment', label: 'Payment Info', icon: 'CreditCard' },
-    { id: 'communication', label: 'Messages', icon: 'MessageCircle' }
-  ];
-
-  const mockMessages = [
-    {
-      id: 1,
-      sender: 'Guest',
-      message: 'Hi, I have a question about the check-in process.',
-      timestamp: new Date(Date.now() - 86400000),
-      type: 'guest'
-    },
-    {
-      id: 2,
-      sender: 'Host',
-      message: 'Hello! Check-in is available from 3 PM. I will send you the access code closer to your arrival date.',
-      timestamp: new Date(Date.now() - 82800000),
-      type: 'host'
-    },
-    {
-      id: 3,
-      sender: 'Admin',
-      message: 'Booking confirmed and payment processed successfully.',
-      timestamp: new Date(Date.now() - 79200000),
-      type: 'admin'
-    }
+    { id: 'notes', label: 'Admin Notes', icon: 'StickyNote' },
+    { id: 'tags', label: 'Tags', icon: 'Tag' },
+    { id: 'history', label: 'Modification History', icon: 'History' }
   ];
 
   const formatDate = (date) => {
@@ -48,44 +56,65 @@ const BookingDetailsModal = ({ booking, isOpen, onClose }) => {
     });
   };
 
-  const formatTime = (date) => {
-    return new Date(date).toLocaleTimeString('en-US', {
+  const formatDateTime = (date) => {
+    return new Date(date).toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
       hour: '2-digit',
       minute: '2-digit'
     });
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-modal p-4">
-      <div className="bg-card rounded-lg shadow-modal w-full max-w-4xl max-h-[90vh] overflow-hidden">
+    <div className="fixed inset-0 z-modal flex items-stretch justify-end" data-booking-modal>
+      {/* Overlay */}
+      <div
+        className="absolute inset-0 bg-black/40"
+        onClick={onClose}
+        aria-label="Close modal"
+      />
+
+      {/* Sheet Panel */}
+      <div className="relative ml-auto h-full w-full max-w-xl sm:max-w-2xl lg:max-w-3xl bg-slate-50 border-l border-border shadow-modal flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-border">
-          <div>
-            <h2 className="text-xl font-semibold text-foreground">
-              Booking Details
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              Booking ID: {booking.id}
-            </p>
+        <div className="sticky top-0 z-[1] flex items-center justify-between px-6 py-4 border-b border-border bg-card/90 backdrop-blur">
+          <div className="flex items-center space-x-4">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                Booking details
+              </span>
+              <h2 className="text-[17px] font-semibold text-foreground line-clamp-1">
+                {booking.guestName} - {booking.spaceName}
+              </h2>
+            </div>
+            <BookingStatusBadge status={booking.status} />
           </div>
           <Button
             variant="ghost"
+            size="sm"
             onClick={onClose}
             iconName="X"
-            size="icon"
+            className="rounded-full hover:bg-muted"
+            aria-label="Close booking details"
           />
         </div>
 
         {/* Tabs */}
-        <div className="border-b border-border">
-          <nav className="flex space-x-8 px-6">
+        <div className="sticky top-[73px] z-[1] border-b border-border bg-card/90 backdrop-blur">
+          <nav className="flex space-x-1 px-4" role="tablist" aria-label="Booking detail tabs">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                aria-controls={`tabpanel-${tab.id}`}
+                id={`tab-${tab.id}`}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center space-x-2 py-4 border-b-2 font-medium text-sm transition-smooth ${
+                className={`flex items-center space-x-2 px-4 py-3 border-b-2 font-medium text-sm transition-smooth ${
                   activeTab === tab.id
-                    ? 'border-primary text-primary' :'border-transparent text-muted-foreground hover:text-foreground'
+                    ? 'border-primary text-primary' 
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
                 }`}
               >
                 <Icon name={tab.icon} size={16} />
@@ -95,39 +124,43 @@ const BookingDetailsModal = ({ booking, isOpen, onClose }) => {
           </nav>
         </div>
 
-        {/* Content */}
-        <div className="p-6 overflow-y-auto max-h-[60vh]">
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto px-4 py-5 space-y-5">
           {activeTab === 'details' && (
-            <div className="space-y-6">
-              {/* Guest Information */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="space-y-4">
-                  <h3 className="text-lg font-medium text-foreground">Guest Information</h3>
-                  <div className="flex items-center space-x-3">
+            <div className="space-y-5" role="tabpanel" id="tabpanel-details" aria-labelledby="tab-details">
+              {/* Guest & Space Information */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="rounded-2xl bg-card px-5 py-4 shadow-sm">
+                  <h3 className="text-xs font-semibold tracking-[0.14em] uppercase text-muted-foreground mb-3">
+                    Guest Information
+                  </h3>
+                  <div className="flex items-center space-x-3.5">
                     <Image
                       src={booking.guestAvatar}
                       alt={booking.guestName}
-                      className="w-12 h-12 rounded-full object-cover"
+                      className="w-12 h-12 rounded-full object-cover ring-2 ring-gray-100"
                     />
-                    <div>
-                      <p className="font-medium text-foreground">{booking.guestName}</p>
-                      <p className="text-sm text-muted-foreground">{booking.guestEmail}</p>
-                      <p className="text-sm text-muted-foreground">{booking.guestPhone}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-foreground">{booking.guestName}</p>
+                      <p className="text-sm text-muted-foreground truncate">{booking.guestEmail}</p>
+                      <p className="text-sm text-muted-foreground">{booking.guestPhone || 'No phone'}</p>
                     </div>
                   </div>
                 </div>
 
-                <div className="space-y-4">
-                  <h3 className="text-lg font-medium text-foreground">Space Information</h3>
-                  <div className="flex items-center space-x-3">
+                <div className="rounded-2xl bg-card px-5 py-4 shadow-sm">
+                  <h3 className="text-xs font-semibold tracking-[0.14em] uppercase text-muted-foreground mb-3">
+                    Space Information
+                  </h3>
+                  <div className="flex items-center space-x-3.5">
                     <Image
                       src={booking.spaceImage}
                       alt={booking.spaceName}
-                      className="w-12 h-12 rounded-lg object-cover"
+                      className="w-12 h-12 rounded-lg object-cover ring-2 ring-gray-100"
                     />
-                    <div>
-                      <p className="font-medium text-foreground">{booking.spaceName}</p>
-                      <p className="text-sm text-muted-foreground">{booking.spaceLocation}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-foreground truncate">{booking.spaceName}</p>
+                      <p className="text-sm text-muted-foreground truncate">{booking.spaceLocation}</p>
                       <p className="text-sm text-muted-foreground">Host: {booking.hostName}</p>
                     </div>
                   </div>
@@ -135,32 +168,52 @@ const BookingDetailsModal = ({ booking, isOpen, onClose }) => {
               </div>
 
               {/* Booking Details */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="space-y-3">
-                  <h3 className="text-lg font-medium text-foreground">Booking Information</h3>
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Check-in:</span>
-                      <span className="font-medium">{formatDate(booking.checkIn)}</span>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="rounded-2xl bg-card px-5 py-4 shadow-sm">
+                  <h3 className="text-xs font-semibold tracking-[0.14em] uppercase text-muted-foreground mb-3">
+                    Booking Information
+                  </h3>
+                  <div className="space-y-2.5">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Check-in:</span>
+                      <span className="text-sm font-semibold text-foreground">{formatDateTime(booking.checkIn)}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Check-out:</span>
-                      <span className="font-medium">{formatDate(booking.checkOut)}</span>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Check-out:</span>
+                      <span className="text-sm font-semibold text-foreground">{formatDateTime(booking.checkOut)}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Guests:</span>
-                      <span className="font-medium">{booking.guests}</span>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Guests:</span>
+                      <span className="text-sm font-semibold text-foreground">{booking.guests}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Status:</span>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Status:</span>
                       <BookingStatusBadge status={booking.status} />
+                    </div>
+                    {booking.status === 'cancelled' && booking.cancellationReason && (
+                      <div className="flex justify-between items-start pt-2 border-t border-border/50">
+                        <span className="text-sm text-muted-foreground">Cancellation Reason:</span>
+                        <span className="text-xs text-foreground text-right max-w-[200px]">{booking.cancellationReason}</span>
+                      </div>
+                    )}
+                    {booking.cancelledAt && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">Cancelled At:</span>
+                        <span className="text-xs text-foreground">{formatDateTime(booking.cancelledAt)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Reference:</span>
+                      <span className="text-xs font-mono text-foreground">{booking.booking_reference}</span>
                     </div>
                   </div>
                 </div>
 
-                <div className="space-y-3">
-                  <h3 className="text-lg font-medium text-foreground">Special Requests</h3>
-                  <p className="text-sm text-muted-foreground">
+                <div className="rounded-2xl bg-card px-5 py-4 shadow-sm">
+                  <h3 className="text-xs font-semibold tracking-[0.14em] uppercase text-muted-foreground mb-3">
+                    Special Requests
+                  </h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
                     {booking.specialRequests || 'No special requests'}
                   </p>
                 </div>
@@ -168,102 +221,223 @@ const BookingDetailsModal = ({ booking, isOpen, onClose }) => {
             </div>
           )}
 
-          {activeTab === 'payment' && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="space-y-4">
-                  <h3 className="text-lg font-medium text-foreground">Payment Summary</h3>
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Subtotal:</span>
-                      <span className="font-medium">${booking.subtotal}</span>
+          {activeTab === 'payment' && (() => {
+            // Calculate actual percentages from stored values
+            const baseAmount = booking.baseAmount || booking.subtotal || 0;
+            const serviceFee = booking.serviceFee || 0;
+            const commissionPartner = parseFloat(booking.raw?.commission_partner || 0);
+            
+            // Calculate percentages dynamically
+            const serviceFeePercent = baseAmount > 0 ? ((serviceFee / baseAmount) * 100) : 0;
+            const commissionPercent = baseAmount > 0 ? ((commissionPartner / baseAmount) * 100) : 0;
+            
+            // Calculate host payout from stored commission
+            const hostPayout = baseAmount - commissionPartner;
+            
+            return (
+              <div className="space-y-5" role="tabpanel" id="tabpanel-payment" aria-labelledby="tab-payment">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <div className="rounded-2xl bg-card px-5 py-4 shadow-sm">
+                    <h3 className="text-xs font-semibold tracking-[0.14em] uppercase text-muted-foreground mb-3">
+                      Payment Breakdown
+                    </h3>
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">Base Amount:</span>
+                        <span className="text-sm font-semibold text-foreground">A${baseAmount.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">
+                          Service Fee {serviceFeePercent > 0 ? `(${serviceFeePercent.toFixed(1)}%)` : ''}:
+                        </span>
+                        <span className="text-sm font-semibold text-foreground">A${serviceFee.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">Processing Fee:</span>
+                        <span className="text-sm font-semibold text-foreground">A${(booking.processingFee || 0).toFixed(2)}</span>
+                      </div>
+                      <div className="border-t border-border pt-3 mt-2">
+                        <div className="flex justify-between items-center">
+                          <span className="font-semibold text-foreground">Total Paid:</span>
+                          <span className="text-lg font-bold text-foreground">A${(booking.total || 0).toFixed(2)}</span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Service Fee:</span>
-                      <span className="font-medium">${booking.serviceFee}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Taxes:</span>
-                      <span className="font-medium">${booking.taxes}</span>
-                    </div>
-                    <div className="flex justify-between border-t border-border pt-2">
-                      <span className="font-medium text-foreground">Total:</span>
-                      <span className="font-semibold text-foreground">${booking.total}</span>
+                  </div>
+
+                  <div className="rounded-2xl bg-card px-5 py-4 shadow-sm">
+                    <h3 className="text-xs font-semibold tracking-[0.14em] uppercase text-muted-foreground mb-3">
+                      Payment Status
+                    </h3>
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">Status:</span>
+                        <PaymentStatusBadge status={booking.paymentStatus} />
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">Method:</span>
+                        <span className="text-sm font-semibold text-foreground">{booking.paymentMethod}</span>
+                      </div>
+                      <div className="flex justify-between items-start">
+                        <span className="text-sm text-muted-foreground">Transaction ID:</span>
+                        <span className="text-xs font-mono text-foreground break-all text-right max-w-[200px]">{booking.transactionId || 'N/A'}</span>
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="space-y-4">
-                  <h3 className="text-lg font-medium text-foreground">Payment Status</h3>
-                  <div className="space-y-2">
+                <div className="rounded-2xl bg-card px-5 py-4 shadow-sm">
+                  <h3 className="text-xs font-semibold tracking-[0.14em] uppercase text-muted-foreground mb-3">
+                    Commission Breakdown
+                  </h3>
+                  <div className="space-y-2.5">
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">Status:</span>
-                      <PaymentStatusBadge status={booking.paymentStatus} />
+                      <span className="text-sm text-muted-foreground">
+                        Platform Commission {commissionPercent > 0 ? `(${commissionPercent.toFixed(1)}%)` : ''}:
+                      </span>
+                      <span className="text-sm font-semibold text-foreground">A${commissionPartner.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">Method:</span>
-                      <span className="font-medium">{booking.paymentMethod}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Transaction ID:</span>
-                      <span className="font-medium font-mono text-xs">{booking.transactionId}</span>
+                      <span className="text-sm text-muted-foreground">Host Payout:</span>
+                      <span className="text-sm font-semibold text-foreground">A${hostPayout.toFixed(2)}</span>
                     </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="space-y-4">
-                <h3 className="text-lg font-medium text-foreground">Commission Breakdown</h3>
-                <div className="bg-muted rounded-lg p-4 space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Platform Commission (15%):</span>
-                    <span className="font-medium">${(booking.total * 0.15).toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Host Payout:</span>
-                    <span className="font-medium">${(booking.total * 0.85).toFixed(2)}</span>
-                  </div>
-                </div>
+                {/* Refund Details Section - Only show if booking is refunded */}
+                {booking.paymentStatus === 'refunded' && (() => {
+                  const refundAmount = parseFloat(booking.raw?.refund_amount || 0);
+                  const transferReversalAmount = parseFloat(booking.raw?.transfer_reversal_amount || 0);
+                  const stripeRefundId = booking.raw?.stripe_refund_id;
+                  const stripeTransferReversalId = booking.raw?.stripe_transfer_reversal_id;
+                  const is50_50Split = transferReversalAmount > 0;
+                  
+                  return (
+                    <div className="rounded-2xl bg-red-50 border border-red-200 px-5 py-4 shadow-sm">
+                      <div className="flex items-center space-x-2 mb-3">
+                        <Icon name="RefreshCw" size={16} className="text-red-600" />
+                        <h3 className="text-xs font-semibold tracking-[0.14em] uppercase text-red-600">
+                          Refund Details
+                        </h3>
+                      </div>
+                      <div className="space-y-2.5">
+                        {is50_50Split ? (
+                          <>
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm text-muted-foreground">Refund Type:</span>
+                              <span className="text-sm font-semibold text-foreground">50/50 Split</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm text-muted-foreground">Seeker Refund:</span>
+                              <span className="text-sm font-semibold text-red-600">A${refundAmount.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm text-muted-foreground">Partner Refund:</span>
+                              <span className="text-sm font-semibold text-red-600">A${transferReversalAmount.toFixed(2)}</span>
+                            </div>
+                            <div className="border-t border-red-200 pt-2 mt-2">
+                              <div className="flex justify-between items-center">
+                                <span className="text-sm font-semibold text-muted-foreground">Total Refunded:</span>
+                                <span className="text-sm font-bold text-red-600">A${(refundAmount + transferReversalAmount).toFixed(2)}</span>
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm text-muted-foreground">Refund Amount:</span>
+                            <span className="text-sm font-semibold text-red-600">A${refundAmount.toFixed(2)}</span>
+                          </div>
+                        )}
+                        {stripeRefundId && (
+                          <div className="flex justify-between items-start pt-2 border-t border-red-200">
+                            <span className="text-sm text-muted-foreground">Stripe Refund ID:</span>
+                            <span className="text-xs font-mono text-foreground break-all text-right max-w-[200px]">{stripeRefundId}</span>
+                          </div>
+                        )}
+                        {stripeTransferReversalId && (
+                          <div className="flex justify-between items-start">
+                            <span className="text-sm text-muted-foreground">Transfer Reversal ID:</span>
+                            <span className="text-xs font-mono text-foreground break-all text-right max-w-[200px]">{stripeTransferReversalId}</span>
+                          </div>
+                        )}
+                        {booking.updatedAt && (
+                          <div className="flex justify-between items-center pt-2 border-t border-red-200">
+                            <span className="text-sm text-muted-foreground">Refunded At:</span>
+                            <span className="text-xs text-foreground">{formatDateTime(booking.updatedAt)}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
+            );
+          })()}
+
+          {activeTab === 'notes' && (
+            <div role="tabpanel" id="tabpanel-notes" aria-labelledby="tab-notes">
+              <BookingNotesSection bookingId={booking.id} />
             </div>
           )}
 
-          {activeTab === 'communication' && (
-            <div className="space-y-4">
-              <h3 className="text-lg font-medium text-foreground">Communication History</h3>
-              <div className="space-y-4 max-h-96 overflow-y-auto">
-                {mockMessages.map((message) => (
-                  <div
-                    key={message.id}
-                    className={`flex ${message.type === 'admin' ? 'justify-center' : 'justify-start'}`}
-                  >
-                    <div className={`max-w-xs lg:max-w-md p-3 rounded-lg ${
-                      message.type === 'guest' ?'bg-muted text-foreground'
-                        : message.type === 'host' ?'bg-primary text-primary-foreground' :'bg-accent text-accent-foreground'
-                    }`}>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-medium">{message.sender}</span>
-                        <span className="text-xs opacity-75">
-                          {formatTime(message.timestamp)}
-                        </span>
-                      </div>
-                      <p className="text-sm">{message.message}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+          {activeTab === 'tags' && (
+            <div role="tabpanel" id="tabpanel-tags" aria-labelledby="tab-tags">
+              <BookingTagsSection bookingId={booking.id} />
+            </div>
+          )}
+
+          {activeTab === 'history' && (
+            <div role="tabpanel" id="tabpanel-history" aria-labelledby="tab-history">
+              <BookingModificationHistory bookingId={booking.id} />
             </div>
           )}
         </div>
 
         {/* Footer Actions */}
-        <div className="flex items-center justify-end space-x-3 p-6 border-t border-border">
-          <Button variant="outline" onClick={onClose}>
-            Close
-          </Button>
-          <Button variant="default" iconName="MessageCircle" iconPosition="left">
-            Send Message
-          </Button>
+        <div className="flex items-center justify-between px-6 py-3 border-t border-border bg-card/96 backdrop-blur flex-shrink-0">
+          <div className="flex items-center space-x-2">
+            {onViewHistory && (
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setActiveTab('history');
+                  onViewHistory(booking);
+                }}
+                iconName="History"
+                iconPosition="left"
+                size="sm"
+              >
+                View History
+              </Button>
+            )}
+          </div>
+          <div className="flex items-center space-x-2">
+            {onProcessRefund && booking?.paymentStatus === 'paid' && (
+              <Button 
+                variant="outline" 
+                onClick={() => onProcessRefund(booking)}
+                iconName="DollarSign"
+                iconPosition="left"
+                size="sm"
+              >
+                Process Refund
+              </Button>
+            )}
+            {onUpdateStatus && (
+              <Button 
+                variant="outline" 
+                onClick={() => onUpdateStatus(booking)}
+                iconName="RefreshCw"
+                iconPosition="left"
+                size="sm"
+              >
+                Update Status
+              </Button>
+            )}
+            <Button variant="outline" onClick={onClose} size="sm">
+              Close
+            </Button>
+          </div>
         </div>
       </div>
     </div>

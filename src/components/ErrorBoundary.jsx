@@ -1,20 +1,43 @@
 import React from "react";
 import Icon from "./AppIcon";
+import { logError } from "../utils/logger";
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false };
+    this.state = { 
+      hasError: false,
+      error: null,
+      errorInfo: null
+    };
   }
 
   static getDerivedStateFromError(error) {
-    return { hasError: true };
+    return { hasError: true, error };
   }
 
   componentDidCatch(error, errorInfo) {
+    // Log error for debugging (sanitized)
+    logError('ErrorBoundary caught an error:', {
+      message: error?.message,
+      stack: error?.stack?.substring(0, 200), // Limit stack trace
+      componentStack: errorInfo?.componentStack?.substring(0, 200)
+    });
+
+    // Store error info for display
+    this.setState({
+      error,
+      errorInfo
+    });
+
+    // Call custom error handler if provided
     error.__ErrorBoundary = true;
     window.__COMPONENT_ERROR__?.(error, errorInfo);
-    // console.log("Error caught by ErrorBoundary:", error, errorInfo);
+
+    // Optionally send to error tracking service
+    if (import.meta.env.VITE_SENTRY_DSN) {
+      // Sentry or other error tracking would go here
+    }
   }
 
   render() {
@@ -32,17 +55,39 @@ class ErrorBoundary extends React.Component {
             </div>
             <div className="flex flex-col gap-1 text-center">
               <h1 className="text-2xl font-medium text-neutral-800">Something went wrong</h1>
-              <p className="text-neutral-600 text-base w w-8/12 mx-auto">We encountered an unexpected error while processing your request.</p>
+              <p className="text-neutral-600 text-base w-8/12 mx-auto">
+                We encountered an unexpected error while processing your request.
+              </p>
+              {this.state.error && (
+                <details className="mt-4 text-left max-w-md mx-auto">
+                  <summary className="cursor-pointer text-sm text-neutral-500 hover:text-neutral-700">
+                    Error Details (for debugging)
+                  </summary>
+                  <pre className="mt-2 text-xs bg-neutral-100 p-2 rounded overflow-auto max-h-40">
+                    {this.state.error?.message || 'Unknown error'}
+                  </pre>
+                </details>
+              )}
             </div>
-            <div className="flex justify-center items-center mt-6">
+            <div className="flex justify-center items-center gap-4 mt-6">
               <button
                 onClick={() => {
+                  this.setState({ hasError: false, error: null, errorInfo: null });
                   window.location.href = "/";
                 }}
                 className="bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded flex items-center gap-2 transition-colors duration-200 shadow-sm"
               >
                 <Icon name="ArrowLeft" size={18} color="#fff" />
-                Back
+                Go Home
+              </button>
+              <button
+                onClick={() => {
+                  this.setState({ hasError: false, error: null, errorInfo: null });
+                  window.location.reload();
+                }}
+                className="bg-neutral-200 hover:bg-neutral-300 text-neutral-800 font-medium py-2 px-4 rounded transition-colors duration-200"
+              >
+                Reload Page
               </button>
             </div>
           </div >

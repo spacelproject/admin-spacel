@@ -4,42 +4,89 @@ import Icon from '../../../components/AppIcon';
 
 import Select from '../../../components/ui/Select';
 
-const RevenueChart = () => {
+const RevenueChart = ({ monthlyData: realMonthlyData }) => {
   const [chartType, setChartType] = useState('line');
   const [timeRange, setTimeRange] = useState('month');
 
-  // Mock revenue data
-  const monthlyData = [
-    { period: 'Jan', revenue: 32400, transactions: 245, avgRate: 14.2 },
-    { period: 'Feb', revenue: 28900, transactions: 198, avgRate: 14.8 },
-    { period: 'Mar', revenue: 35600, transactions: 267, avgRate: 15.1 },
-    { period: 'Apr', revenue: 41200, transactions: 312, avgRate: 15.3 },
-    { period: 'May', revenue: 38800, transactions: 289, avgRate: 14.9 },
-    { period: 'Jun', revenue: 45200, transactions: 334, avgRate: 15.5 },
-    { period: 'Jul', revenue: 52100, transactions: 378, avgRate: 15.8 },
-    { period: 'Aug', revenue: 48900, transactions: 356, avgRate: 15.2 },
-    { period: 'Sep', revenue: 44700, transactions: 321, avgRate: 15.0 },
-    { period: 'Oct', revenue: 39800, transactions: 298, avgRate: 14.7 },
-    { period: 'Nov', revenue: 42300, transactions: 315, avgRate: 15.1 },
-    { period: 'Dec', revenue: 45280, transactions: 342, avgRate: 15.2 }
-  ];
+  // Calculate real data for all time ranges
+  const calculateTimeRangeData = () => {
+    if (!realMonthlyData || realMonthlyData.length === 0) {
+      return {
+        monthlyData: [],
+        weeklyData: [],
+        dailyData: []
+      };
+    }
 
-  const weeklyData = [
-    { period: 'Week 1', revenue: 11200, transactions: 85, avgRate: 15.1 },
-    { period: 'Week 2', revenue: 12800, transactions: 92, avgRate: 15.3 },
-    { period: 'Week 3', revenue: 10900, transactions: 78, avgRate: 14.8 },
-    { period: 'Week 4', revenue: 10380, transactions: 87, avgRate: 15.2 }
-  ];
+    // Build a YYYY-MM -> data map from provided monthly data
+    const monthToData = new Map(
+      realMonthlyData.map(item => [
+        item.month,
+        {
+          revenue: Number(item.revenue) || 0,
+          transactions: Number(item.transactions) || 0,
+          avgRate: Number(item.avgCommissionRate) || 0
+        }
+      ])
+    )
 
-  const dailyData = [
-    { period: 'Mon', revenue: 1850, transactions: 14, avgRate: 15.2 },
-    { period: 'Tue', revenue: 2100, transactions: 16, avgRate: 15.1 },
-    { period: 'Wed', revenue: 1920, transactions: 13, avgRate: 15.4 },
-    { period: 'Thu', revenue: 2340, transactions: 18, avgRate: 15.0 },
-    { period: 'Fri', revenue: 2680, transactions: 21, avgRate: 14.9 },
-    { period: 'Sat', revenue: 1890, transactions: 15, avgRate: 15.3 },
-    { period: 'Sun', revenue: 1600, transactions: 12, avgRate: 15.1 }
-  ];
+    // Generate the last 12 months including the current month, padding missing months with zeros
+    const now = new Date()
+    const monthsPadded = []
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      const data = monthToData.get(key) || { revenue: 0, transactions: 0, avgRate: 0 }
+      monthsPadded.push({
+        period: key,
+        revenue: data.revenue,
+        transactions: data.transactions,
+        avgRate: data.avgRate
+      })
+    }
+
+    const monthlyData = monthsPadded
+
+    // Calculate weekly data from monthly data (simplified - distribute monthly data across weeks)
+    const weeklyData = [];
+    monthlyData.forEach(month => {
+      const weeksInMonth = 4; // Simplified assumption
+      const weeklyRevenue = month.revenue / weeksInMonth;
+      const weeklyTransactions = Math.round((month.transactions || 0) / weeksInMonth);
+      
+      for (let week = 1; week <= weeksInMonth; week++) {
+        weeklyData.push({
+          period: `Week ${week}`,
+          revenue: Math.round(weeklyRevenue),
+          transactions: weeklyTransactions,
+          avgRate: month.avgRate
+        });
+      }
+    });
+
+    // Calculate daily data from monthly data (simplified - distribute monthly data across days)
+    const dailyData = [];
+    const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const daysInWeek = 7;
+    
+    monthlyData.forEach(month => {
+      const dailyRevenue = month.revenue / (daysInWeek * 4); // 4 weeks per month
+      const dailyTransactions = Math.round((month.transactions || 0) / (daysInWeek * 4));
+      
+      dayNames.forEach(day => {
+        dailyData.push({
+          period: day,
+          revenue: Math.round(dailyRevenue),
+          transactions: dailyTransactions,
+          avgRate: month.avgRate
+        });
+      });
+    });
+
+    return { monthlyData, weeklyData, dailyData };
+  };
+
+  const { monthlyData, weeklyData, dailyData } = calculateTimeRangeData();
 
   const getChartData = () => {
     switch (timeRange) {
@@ -64,26 +111,26 @@ const RevenueChart = () => {
   ];
 
   const formatCurrency = (value) => {
-    return new Intl.NumberFormat('en-US', {
+    return new Intl.NumberFormat('en-AU', {
       style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0
+      currency: 'AUD',
+      minimumFractionDigits: 2
     }).format(value);
   };
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
       return (
-        <div className="bg-card border border-border rounded-lg p-3 shadow-modal">
-          <p className="text-sm font-medium text-card-foreground mb-2">{label}</p>
+        <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-lg">
+          <p className="text-sm font-semibold text-gray-900 mb-2">{label}</p>
           {payload.map((entry, index) => (
             <div key={index} className="flex items-center space-x-2 text-sm">
               <div 
                 className="w-3 h-3 rounded-full" 
                 style={{ backgroundColor: entry.color }}
               />
-              <span className="text-muted-foreground">{entry.name}:</span>
-              <span className="font-medium text-card-foreground">
+              <span className="text-gray-600">{entry.name}:</span>
+              <span className="font-semibold text-gray-900">
                 {entry.dataKey === 'revenue' ? formatCurrency(entry.value) : entry.value}
                 {entry.dataKey === 'avgRate' && '%'}
               </span>
@@ -96,11 +143,15 @@ const RevenueChart = () => {
   };
 
   const chartData = getChartData();
+  const hasData = Array.isArray(chartData) && chartData.length > 0;
 
   return (
-    <div className="bg-card rounded-lg border border-border p-6">
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-semibold text-card-foreground">Revenue Trends</h2>
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900">Revenue Trends</h2>
+          <p className="text-sm text-gray-500 mt-1">Track your commission revenue over time</p>
+        </div>
         <div className="flex items-center space-x-3">
           <Select
             options={timeRangeOptions}
@@ -118,86 +169,110 @@ const RevenueChart = () => {
       </div>
 
       {/* Chart */}
-      <div className="h-80 mb-6">
-        <ResponsiveContainer width="100%" height="100%">
-          {chartType === 'line' ? (
-            <LineChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+      <div className="h-80 mb-6 bg-gray-50/50 rounded-lg p-4">
+        {!hasData ? (
+          <div className="h-full flex items-center justify-center text-muted-foreground">
+            No data available for the selected range
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            {chartType === 'line' ? (
+              <LineChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
               <XAxis 
                 dataKey="period" 
-                stroke="var(--color-muted-foreground)"
-                fontSize={12}
+                stroke="#94a3b8"
+                fontSize={11}
+                tickLine={false}
+                axisLine={false}
+                tick={{ fill: '#64748b' }}
               />
               <YAxis 
-                stroke="var(--color-muted-foreground)"
-                fontSize={12}
+                stroke="#94a3b8"
+                fontSize={11}
+                tickLine={false}
+                axisLine={false}
+                tick={{ fill: '#64748b' }}
                 tickFormatter={formatCurrency}
               />
               <Tooltip content={<CustomTooltip />} />
               <Line 
                 type="monotone" 
                 dataKey="revenue" 
-                stroke="var(--color-primary)" 
+                stroke="#2563EB" 
                 strokeWidth={2}
-                dot={{ fill: 'var(--color-primary)', strokeWidth: 2, r: 4 }}
-                activeDot={{ r: 6, stroke: 'var(--color-primary)', strokeWidth: 2 }}
+                dot={{ fill: '#2563EB', strokeWidth: 2, r: 4 }}
+                activeDot={{ r: 6, stroke: '#2563EB', strokeWidth: 2 }}
                 name="Revenue"
               />
-            </LineChart>
-          ) : (
-            <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+              </LineChart>
+            ) : (
+              <BarChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
               <XAxis 
                 dataKey="period" 
-                stroke="var(--color-muted-foreground)"
-                fontSize={12}
+                stroke="#94a3b8"
+                fontSize={11}
+                tickLine={false}
+                axisLine={false}
+                tick={{ fill: '#64748b' }}
               />
               <YAxis 
-                stroke="var(--color-muted-foreground)"
-                fontSize={12}
+                stroke="#94a3b8"
+                fontSize={11}
+                tickLine={false}
+                axisLine={false}
+                tick={{ fill: '#64748b' }}
                 tickFormatter={formatCurrency}
               />
               <Tooltip content={<CustomTooltip />} />
               <Bar 
                 dataKey="revenue" 
-                fill="var(--color-primary)"
+                fill="#2563EB"
                 name="Revenue"
                 radius={[4, 4, 0, 0]}
               />
-            </BarChart>
-          )}
-        </ResponsiveContainer>
+              </BarChart>
+            )}
+          </ResponsiveContainer>
+        )}
       </div>
 
       {/* Chart Statistics */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-muted rounded-lg p-4">
+        <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 rounded-lg p-5 border border-blue-200/50">
           <div className="flex items-center space-x-2 mb-2">
-            <Icon name="TrendingUp" size={16} className="text-success" />
-            <span className="text-sm font-medium text-card-foreground">Total Revenue</span>
+            <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
+              <Icon name="TrendingUp" size={16} className="text-white" />
+            </div>
+            <span className="text-sm font-medium text-gray-700">Total Revenue</span>
           </div>
-          <p className="text-lg font-bold text-card-foreground">
-            {formatCurrency(chartData.reduce((sum, item) => sum + item.revenue, 0))}
+          <p className="text-2xl font-bold text-gray-900">
+            {formatCurrency((chartData || []).reduce((sum, item) => sum + (Number(item.revenue) || 0), 0))}
           </p>
         </div>
 
-        <div className="bg-muted rounded-lg p-4">
+        <div className="bg-gradient-to-br from-green-50 to-green-100/50 rounded-lg p-5 border border-green-200/50">
           <div className="flex items-center space-x-2 mb-2">
-            <Icon name="BarChart3" size={16} className="text-primary" />
-            <span className="text-sm font-medium text-card-foreground">Avg. Revenue</span>
+            <div className="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center">
+              <Icon name="BarChart3" size={16} className="text-white" />
+            </div>
+            <span className="text-sm font-medium text-gray-700">Avg. Revenue</span>
           </div>
-          <p className="text-lg font-bold text-card-foreground">
-            {formatCurrency(chartData.reduce((sum, item) => sum + item.revenue, 0) / chartData.length)}
+          <p className="text-2xl font-bold text-gray-900">
+            {formatCurrency(((chartData || []).reduce((sum, item) => sum + (Number(item.revenue) || 0), 0)) / (chartData?.length || 1))}
           </p>
         </div>
 
-        <div className="bg-muted rounded-lg p-4">
+        <div className="bg-gradient-to-br from-purple-50 to-purple-100/50 rounded-lg p-5 border border-purple-200/50">
           <div className="flex items-center space-x-2 mb-2">
-            <Icon name="Percent" size={16} className="text-accent" />
-            <span className="text-sm font-medium text-card-foreground">Avg. Commission</span>
+            <div className="w-8 h-8 bg-purple-500 rounded-lg flex items-center justify-center">
+              <Icon name="Percent" size={16} className="text-white" />
+            </div>
+            <span className="text-sm font-medium text-gray-700">Avg. Commission</span>
           </div>
-          <p className="text-lg font-bold text-card-foreground">
-            {(chartData.reduce((sum, item) => sum + item.avgRate, 0) / chartData.length).toFixed(1)}%
+          <p className="text-2xl font-bold text-gray-900">
+            {((((chartData || []).reduce((sum, item) => sum + (Number(item.avgRate) || 0), 0)) / (chartData?.length || 1)) || 0).toFixed(1)}%
           </p>
         </div>
       </div>

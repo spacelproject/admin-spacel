@@ -3,6 +3,7 @@ import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import Input from '../../../components/ui/Input';
 import Select from '../../../components/ui/Select';
+import { supabase } from '../../../lib/supabase';
 
 const AddUserModal = ({ isOpen, onClose, onAddUser }) => {
   const [formData, setFormData] = useState({
@@ -98,28 +99,67 @@ const AddUserModal = ({ isOpen, onClose, onAddUser }) => {
     setIsSubmitting(true);
 
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
+      // Create user in Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+        email: formData.email,
+        password: formData.password,
+        email_confirm: true
+      });
+      
+      if (authError) throw authError;
+      
+      // Create profile in profiles table
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .insert({
+          id: authData.user.id,
+          email: formData.email,
+          first_name: formData.name.split(' ')[0],
+          last_name: formData.name.split(' ').slice(1).join(' '),
+          role: formData.userType,
+          phone: formData.phone,
+          company_name: formData.userType === 'partner' ? formData.location : null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+      
+      if (profileError) throw profileError;
+      
+      // Skip creating user_preferences from admin panel (RLS-protected; created by app/user lifecycle)
+      
+      // Create user presence record
+      await supabase
+        .from('user_presence')
+        .insert({
+          user_id: authData.user.id,
+          last_seen: new Date().toISOString(),
+          is_online: false
+        });
+      
+      // Transform data for UI
       const newUser = {
-        id: `USR${Date.now()}`,
-        name: formData?.name,
-        email: formData?.email,
-        phone: formData?.phone,
-        userType: formData?.userType,
-        location: formData?.location,
+        id: profileData.id,
+        name: `${profileData.first_name} ${profileData.last_name}`.trim(),
+        email: profileData.email,
+        role: profileData.role,
         status: 'active',
-        registrationDate: new Date()?.toISOString(),
-        lastActivity: new Date()?.toISOString(),
-        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${formData?.name}`,
+        avatar: profileData.avatar_url,
+        phone: profileData.phone,
+        joinedDate: profileData.created_at,
+        lastActive: profileData.updated_at,
         totalBookings: 0,
-        totalSpent: '0'
+        totalSpent: 0,
+        location: profileData.company_name || 'Not specified'
       };
-
+      
       onAddUser(newUser);
       handleClose();
+      
     } catch (error) {
-      console.error('Error adding user:', error);
+      console.error('Error creating user:', error);
+      setErrors({ general: error.message });
     } finally {
       setIsSubmitting(false);
     }
@@ -165,6 +205,16 @@ const AddUserModal = ({ isOpen, onClose, onAddUser }) => {
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto max-h-[70vh]">
+          {/* General Error */}
+          {errors?.general && (
+            <div className="bg-destructive/10 border border-destructive/20 rounded-md p-4">
+              <div className="flex items-center space-x-2">
+                <Icon name="AlertCircle" size={16} className="text-destructive" />
+                <p className="text-sm text-destructive">{errors.general}</p>
+              </div>
+            </div>
+          )}
+          
           {/* Personal Information */}
           <div className="space-y-4">
             <h3 className="text-lg font-medium text-foreground">Personal Information</h3>

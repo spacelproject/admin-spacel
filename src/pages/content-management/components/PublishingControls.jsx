@@ -23,8 +23,8 @@ const PublishingControls = ({ item, onPublish, onSchedule, onSaveDraft }) => {
 
   const audienceOptions = [
     { value: 'all_users', label: 'All Users' },
-    { value: 'hosts_only', label: 'Hosts Only' },
-    { value: 'guests_only', label: 'Guests Only' }
+    { value: 'seekers_only', label: 'Seekers Only' },
+    { value: 'partners_only', label: 'Partners Only' }
   ];
 
   const handleSettingChange = (field, value) => {

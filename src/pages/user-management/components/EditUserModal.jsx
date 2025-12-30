@@ -3,8 +3,12 @@ import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import Input from '../../../components/ui/Input';
 import Select from '../../../components/ui/Select';
+import { supabase } from '../../../lib/supabase';
+import { formatCurrencyDisplay } from '../../../utils/currency';
+import { useToast } from '../../../components/ui/Toast';
 
 const EditUserModal = ({ isOpen, onClose, user, onUpdateUser }) => {
+  const { showToast } = useToast();
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -13,9 +17,17 @@ const EditUserModal = ({ isOpen, onClose, user, onUpdateUser }) => {
     location: '',
     status: ''
   });
+  const [passwordData, setPasswordData] = useState({
+    newPassword: '',
+    confirmPassword: '',
+    forceChange: false
+  });
 
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [showPasswordSection, setShowPasswordSection] = useState(false);
+  const [isUpdatingVerification, setIsUpdatingVerification] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -37,25 +49,9 @@ const EditUserModal = ({ isOpen, onClose, user, onUpdateUser }) => {
     { value: 'seeker', label: 'Seeker' }
   ];
 
-  const statusOptions = [
-    { value: 'active', label: 'Active' },
-    { value: 'suspended', label: 'Suspended' },
-    { value: 'pending', label: 'Pending' },
-    { value: 'inactive', label: 'Inactive' }
-  ];
+  // Status changes (suspend/activate) are handled via the dedicated Suspend/Activate flow in the table.
 
-  const locationOptions = [
-    { value: 'New York, NY', label: 'New York, NY' },
-    { value: 'Los Angeles, CA', label: 'Los Angeles, CA' },
-    { value: 'Chicago, IL', label: 'Chicago, IL' },
-    { value: 'Houston, TX', label: 'Houston, TX' },
-    { value: 'Phoenix, AZ', label: 'Phoenix, AZ' },
-    { value: 'Philadelphia, PA', label: 'Philadelphia, PA' },
-    { value: 'San Antonio, TX', label: 'San Antonio, TX' },
-    { value: 'San Diego, CA', label: 'San Diego, CA' },
-    { value: 'Dallas, TX', label: 'Dallas, TX' },
-    { value: 'San Jose, CA', label: 'San Jose, CA' }
-  ];
+  // Location is a free-form value stored in DB (avoid dummy dropdown options)
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -77,10 +73,6 @@ const EditUserModal = ({ isOpen, onClose, user, onUpdateUser }) => {
       newErrors.email = 'Please enter a valid email address';
     }
 
-    if (!formData?.phone?.trim()) {
-      newErrors.phone = 'Phone number is required';
-    }
-
     if (!formData?.userType) {
       newErrors.userType = 'User type is required';
     }
@@ -89,9 +81,7 @@ const EditUserModal = ({ isOpen, onClose, user, onUpdateUser }) => {
       newErrors.location = 'Location is required';
     }
 
-    if (!formData?.status) {
-      newErrors.status = 'Status is required';
-    }
+    // status is intentionally not editable here
 
     setErrors(newErrors);
     return Object.keys(newErrors)?.length === 0;
@@ -107,31 +97,166 @@ const EditUserModal = ({ isOpen, onClose, user, onUpdateUser }) => {
     setIsSubmitting(true);
 
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Update email in auth.users if it changed
+      if (formData.email !== user.email) {
+        const { error: authError } = await supabase.auth.admin.updateUserById(user.id, {
+          email: formData.email
+        });
+        
+        if (authError) {
+          console.warn('Error updating auth email:', authError);
+          // Continue with profile update even if auth update fails
+        }
+      }
 
+      // Update profile in profiles table
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .update({
+          email: formData.email,
+          first_name: formData.name.split(' ')[0],
+          last_name: formData.name.split(' ').slice(1).join(' '),
+          role: formData.userType,
+          phone: formData.phone?.trim() || null,
+          location: formData.location?.trim() || null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', user.id)
+        .select()
+        .single();
+      
+      if (profileError) throw profileError;
+      
+      // Skip user_preferences updates from admin panel (RLS-protected; managed by app/user lifecycle)
+      
+      // Transform data for UI
       const updatedUser = {
         ...user,
-        name: formData?.name,
-        email: formData?.email,
-        phone: formData?.phone,
-        userType: formData?.userType,
-        location: formData?.location,
-        status: formData?.status
+        name: `${profileData.first_name} ${profileData.last_name}`.trim(),
+        email: profileData.email,
+        role: profileData.role,
+        phone: profileData.phone,
+        location: profileData.location || 'Not specified',
+        lastActive: profileData.updated_at
       };
-
+      
       onUpdateUser(updatedUser);
       handleClose();
+      
     } catch (error) {
       console.error('Error updating user:', error);
+      setErrors({ general: error.message });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleToggleVerification = async (type) => {
+    setIsUpdatingVerification(true);
+
+    try {
+      const field = type === 'phone' ? 'is_phone_verified' : 'email_verified';
+      const currentValue = type === 'phone' ? user?.isPhoneVerified : user?.emailVerified;
+      const newValue = !currentValue;
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          [field]: newValue,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', user.id);
+
+      if (error) throw error;
+
+      // If verifying email, also update auth.users
+      if (type === 'email' && newValue) {
+        await supabase.auth.admin.updateUserById(user.id, {
+          email_confirm: true
+        });
+      }
+
+      showToast(`${type === 'phone' ? 'Phone' : 'Email'} verification ${newValue ? 'enabled' : 'disabled'}`, 'success');
+      
+      // Update local user object
+      if (type === 'phone') {
+        user.isPhoneVerified = newValue;
+      } else {
+        user.emailVerified = newValue;
+      }
+      
+      // Trigger refresh
+      onUpdateUser(user);
+    } catch (error) {
+      console.error('Error updating verification:', error);
+      showToast(`Error updating verification: ${error.message}`, 'error');
+    } finally {
+      setIsUpdatingVerification(false);
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    if (!passwordData.newPassword) {
+      showToast('Please enter a new password', 'error');
+      return;
+    }
+
+    if (passwordData.newPassword.length < 8) {
+      showToast('Password must be at least 8 characters', 'error');
+      return;
+    }
+
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      showToast('Passwords do not match', 'error');
+      return;
+    }
+
+    setIsResettingPassword(true);
+
+    try {
+      // Update password using admin API
+      const { error } = await supabase.auth.admin.updateUserById(user.id, {
+        password: passwordData.newPassword
+      });
+
+      if (error) throw error;
+
+      // If force change is enabled, we could set a flag in user metadata
+      // Note: Supabase doesn't have a built-in "force password change" feature
+      // This would need to be handled in your application logic
+      if (passwordData.forceChange) {
+        await supabase.auth.admin.updateUserById(user.id, {
+          user_metadata: {
+            ...user.user_metadata,
+            force_password_change: true
+          }
+        });
+      }
+
+      showToast('Password reset successfully', 'success');
+      setPasswordData({
+        newPassword: '',
+        confirmPassword: '',
+        forceChange: false
+      });
+      setShowPasswordSection(false);
+    } catch (error) {
+      console.error('Error resetting password:', error);
+      showToast(`Error resetting password: ${error.message}`, 'error');
+    } finally {
+      setIsResettingPassword(false);
     }
   };
 
   const handleClose = () => {
     setErrors({});
     setIsSubmitting(false);
+    setPasswordData({
+      newPassword: '',
+      confirmPassword: '',
+      forceChange: false
+    });
+    setShowPasswordSection(false);
     onClose();
   };
 
@@ -160,6 +285,16 @@ const EditUserModal = ({ isOpen, onClose, user, onUpdateUser }) => {
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto max-h-[70vh]">
+          {/* General Error */}
+          {errors?.general && (
+            <div className="bg-destructive/10 border border-destructive/20 rounded-md p-4">
+              <div className="flex items-center space-x-2">
+                <Icon name="AlertCircle" size={16} className="text-destructive" />
+                <p className="text-sm text-destructive">{errors.general}</p>
+              </div>
+            </div>
+          )}
+          
           {/* Personal Information */}
           <div className="space-y-4">
             <h3 className="text-lg font-medium text-foreground">Personal Information</h3>
@@ -175,6 +310,7 @@ const EditUserModal = ({ isOpen, onClose, user, onUpdateUser }) => {
                 required
               />
               
+              <div className="space-y-2">
               <Input
                 label="Email Address"
                 type="email"
@@ -184,18 +320,54 @@ const EditUserModal = ({ isOpen, onClose, user, onUpdateUser }) => {
                 error={errors?.email}
                 required
               />
+                {user?.email && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">
+                      Email Verification: {user.emailVerified !== false ? 'Verified' : 'Not Verified'}
+                    </span>
+                    {user.emailVerified === false && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleToggleVerification('email')}
+                        loading={isUpdatingVerification}
+                        iconName="CheckCircle"
+                      >
+                        Verify
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
               <Input
-                label="Phone Number"
+                  label="Phone Number (Optional)"
                 type="tel"
                 placeholder="Enter phone number"
                 value={formData?.phone}
                 onChange={(e) => handleInputChange('phone', e?.target?.value)}
                 error={errors?.phone}
-                required
-              />
+                />
+                {user?.isPhoneVerified !== undefined && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">
+                      Phone Verification: {user.isPhoneVerified ? 'Verified' : 'Not Verified'}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleToggleVerification('phone')}
+                      loading={isUpdatingVerification}
+                      iconName={user.isPhoneVerified ? 'XCircle' : 'CheckCircle'}
+                    >
+                      {user.isPhoneVerified ? 'Unverify' : 'Verify'}
+                    </Button>
+                  </div>
+                )}
+              </div>
               
               <Select
                 label="User Type"
@@ -208,22 +380,13 @@ const EditUserModal = ({ isOpen, onClose, user, onUpdateUser }) => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Select
+              <Input
                 label="Location"
-                options={locationOptions?.map(loc => ({ value: loc?.value, label: loc?.label }))}
+                type="text"
+                placeholder="Enter location"
                 value={formData?.location}
-                onChange={(value) => handleInputChange('location', value)}
+                onChange={(e) => handleInputChange('location', e?.target?.value)}
                 error={errors?.location}
-                searchable
-                required
-              />
-
-              <Select
-                label="Status"
-                options={statusOptions}
-                value={formData?.status}
-                onChange={(value) => handleInputChange('status', value)}
-                error={errors?.status}
                 required
               />
             </div>
@@ -244,30 +407,77 @@ const EditUserModal = ({ isOpen, onClose, user, onUpdateUser }) => {
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">Registration Date</label>
                 <div className="px-3 py-2 bg-muted rounded-md text-sm text-muted-foreground">
-                  {new Date(user?.registrationDate)?.toLocaleDateString('en-US', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric'
-                  })}
+                  {user?.joinedDate 
+                    ? new Date(user.joinedDate).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                      })
+                    : 'Not available'
+                  }
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* Password Reset Section */}
+          <div className="space-y-4 border-t border-border pt-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-medium text-foreground">Password Management</h3>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowPasswordSection(!showPasswordSection)}
+              >
+                {showPasswordSection ? 'Hide' : 'Reset Password'}
+              </Button>
             </div>
 
+            {showPasswordSection && (
+              <div className="space-y-4 bg-muted/30 p-4 rounded-lg">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Total Bookings</label>
-                <div className="px-3 py-2 bg-muted rounded-md text-sm text-muted-foreground">
-                  {user?.totalBookings} bookings
-                </div>
+                  <Input
+                    label="New Password"
+                    type="password"
+                    placeholder="Enter new password"
+                    value={passwordData.newPassword}
+                    onChange={(e) => setPasswordData(prev => ({ ...prev, newPassword: e.target.value }))}
+                    description="Minimum 8 characters"
+                  />
+                  
+                  <Input
+                    label="Confirm Password"
+                    type="password"
+                    placeholder="Confirm new password"
+                    value={passwordData.confirmPassword}
+                    onChange={(e) => setPasswordData(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                  />
               </div>
               
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Total Spent</label>
-                <div className="px-3 py-2 bg-muted rounded-md text-sm text-muted-foreground">
-                  ${user?.totalSpent}
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="forceChange"
+                    checked={passwordData.forceChange}
+                    onChange={(e) => setPasswordData(prev => ({ ...prev, forceChange: e.target.checked }))}
+                    className="rounded border-border"
+                  />
+                  <label htmlFor="forceChange" className="text-sm text-foreground">
+                    Force password change on next login
+                </label>
                 </div>
+
+                <Button
+                  variant="default"
+                  onClick={handlePasswordReset}
+                  loading={isResettingPassword}
+                  iconName="Key"
+                  iconPosition="left"
+                >
+                  Reset Password
+                </Button>
               </div>
-            </div>
+            )}
           </div>
         </form>
 

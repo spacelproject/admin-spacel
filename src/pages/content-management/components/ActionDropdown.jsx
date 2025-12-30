@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 
@@ -16,18 +17,86 @@ const ActionDropdown = ({
   position = 'right'
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, placement: 'bottom' });
   const dropdownRef = useRef(null);
+  const buttonRef = useRef(null);
+  const containerRef = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (dropdownRef?.current && !dropdownRef?.current?.contains(event?.target)) {
+      if (
+        containerRef?.current && 
+        !containerRef?.current?.contains(event?.target) &&
+        dropdownRef?.current &&
+        !dropdownRef?.current?.contains(event?.target)
+      ) {
         setIsOpen(false);
       }
     };
 
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen && buttonRef.current) {
+      const updatePosition = () => {
+        if (!buttonRef.current) return;
+        
+        const buttonRect = buttonRef.current.getBoundingClientRect();
+        const viewportHeight = window.innerHeight;
+        const viewportWidth = window.innerWidth;
+        const spaceBelow = viewportHeight - buttonRect.bottom;
+        const spaceAbove = buttonRect.top;
+        const estimatedDropdownHeight = 300; // Approximate height
+        const dropdownWidth = 220; // max-w-[220px]
+
+        // Calculate horizontal position
+        let left = buttonRect.left;
+        if (position === 'left') {
+          left = buttonRect.right - dropdownWidth;
+        }
+        
+        // Ensure dropdown doesn't go off screen
+        if (left + dropdownWidth > viewportWidth) {
+          left = viewportWidth - dropdownWidth - 10;
+        }
+        if (left < 10) {
+          left = 10;
+        }
+
+        // Calculate vertical position
+        let top = buttonRect.bottom + 4; // mt-1 = 4px
+        let placement = 'bottom';
+        
+        if (spaceBelow < estimatedDropdownHeight && spaceAbove > spaceBelow) {
+          // Position above
+          top = buttonRect.top - estimatedDropdownHeight;
+          placement = 'top';
+        }
+
+        setDropdownPosition({
+          top: Math.max(10, top),
+          left,
+          placement
+        });
+      };
+
+      updatePosition();
+      window.addEventListener('scroll', updatePosition, true);
+      window.addEventListener('resize', updatePosition);
+
+      return () => {
+        window.removeEventListener('scroll', updatePosition, true);
+        window.removeEventListener('resize', updatePosition);
+      };
+    }
+  }, [isOpen, position]);
 
   const handleAction = (action, callback) => {
     setIsOpen(false);
@@ -129,18 +198,28 @@ const ActionDropdown = ({
   if (actions?.length === 0) return null;
 
   return (
-    <div className="relative" ref={dropdownRef}>
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => setIsOpen(!isOpen)}
-        iconName="MoreHorizontal"
-        className="h-8 w-8 p-0"
-      />
-      {isOpen && (
-        <div className={`absolute top-full z-50 mt-1 min-w-[180px] bg-card border border-border rounded-md shadow-lg ${
-          position === 'left' ? 'right-0' : 'left-0'
-        }`}>
+    <div className="relative" ref={containerRef}>
+      <div ref={buttonRef}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setIsOpen(!isOpen)}
+          iconName="MoreHorizontal"
+          className="h-8 w-8 p-0"
+        />
+      </div>
+      {isOpen && createPortal(
+        <div 
+          className="fixed z-[9999] min-w-[180px] max-w-[220px] bg-card border border-border rounded-md shadow-lg"
+          style={{
+            top: `${dropdownPosition.top}px`,
+            left: `${dropdownPosition.left}px`,
+            maxHeight: '400px',
+            overflowY: 'auto',
+            overflowX: 'hidden'
+          }}
+          ref={dropdownRef}
+        >
           <div className="py-1">
             {actions?.map((action, index) => (
               <div key={index}>
@@ -149,18 +228,19 @@ const ActionDropdown = ({
                 )}
                 <button
                   onClick={() => handleAction(action?.label, action?.onClick)}
-                  className={`w-full px-3 py-2 text-left text-sm transition-colors flex items-center space-x-2 hover:bg-muted ${
+                  className={`w-full px-3 py-2 text-left text-sm transition-colors flex items-center space-x-2 hover:bg-muted whitespace-nowrap ${
                     action?.variant === 'destructive' ?'text-destructive hover:bg-destructive/10' 
                       : action?.variant === 'success' ?'text-success hover:bg-success/10' :'text-foreground'
                   }`}
                 >
-                  <Icon name={action?.icon} size={14} />
-                  <span>{action?.label}</span>
+                  <Icon name={action?.icon} size={14} className="flex-shrink-0" />
+                  <span className="truncate">{action?.label}</span>
                 </button>
               </div>
             ))}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

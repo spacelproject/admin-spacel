@@ -6,10 +6,10 @@
 
 @layer base {
   :root {
-    /* Core Colors */
-    --color-background: #F8FAFC; /* slate-50 */
-    --color-foreground: #1E293B; /* slate-800 */
-    --color-border: #E2E8F0; /* slate-200 */
+    /* Core Colors - Updated to match reference design */
+    --color-background: #F9FAFB; /* lighter gray background */
+    --color-foreground: #111827; /* darker text for better contrast */
+    --color-border: #E5E7EB; /* lighter border */
     --color-input: #FFFFFF; /* white */
     --color-ring: #2563EB; /* blue-600 */
     
@@ -93,12 +93,46 @@
 }
 
 @layer components {
+  /* Global responsive typography and overflow safety */
+  .responsive-typography {
+    @apply text-sm sm:text-sm md:text-base lg:text-base xl:text-base 2xl:text-lg;
+  }
+
+  .truncate-safe {
+    @apply truncate whitespace-nowrap overflow-hidden;
+  }
+
+  .wrap-balance {
+    /* Prefer balanced wrapping when available */
+    text-wrap: balance;
+  }
+
+  .break-words-safe {
+    @apply break-words break-normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    hyphens: auto;
+  }
+
+  .content-safe {
+    @apply break-words-safe;
+  }
+
+  /* Common heading sizes */
+  .h1-responsive { @apply text-xl sm:text-2xl lg:text-3xl font-bold; }
+  .h2-responsive { @apply text-lg sm:text-xl lg:text-2xl font-semibold; }
+  .h3-responsive { @apply text-base sm:text-lg lg:text-xl font-semibold; }
+
   .sidebar-shadow {
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   }
   
   .card-shadow {
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
+  }
+  
+  .card-shadow-hover {
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
   }
   
   .modal-shadow {
@@ -112,4 +146,32 @@
   .transition-modal {
     transition: all 300ms ease-in-out;
   }
+
+  /* Modern card styles matching reference design */
+  .metric-card {
+    @apply bg-white rounded-lg p-4 card-shadow transition-smooth;
+  }
+
+  .metric-card:hover {
+    @apply card-shadow-hover;
+  }
+
+  /* Icon circle for metrics */
+  .icon-circle {
+    @apply w-10 h-10 rounded-full flex items-center justify-center;
+  }
+
+  /* Active sidebar item */
+  .sidebar-item-active {
+    @apply bg-primary text-primary-foreground rounded-lg;
+  }
+
+  /* Clean header style */
+  .header-modern {
+    @apply bg-white border-b border-gray-200 shadow-sm;
+  }
+
+  /* Utility to prevent layout shift for icons with long labels */
+  .label-clamp-1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+  .label-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 }

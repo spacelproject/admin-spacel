@@ -13,7 +13,7 @@ const BrandingHeader = () => {
             </svg>
           </div>
           <div className="text-left">
-            <h1 className="text-3xl font-bold text-foreground">SPACIO</h1>
+            <h1 className="text-3xl font-bold text-foreground">SPACEL</h1>
             <p className="text-sm text-muted-foreground">Administrative Dashboard</p>
           </div>
         </div>
@@ -25,7 +25,7 @@ const BrandingHeader = () => {
           Welcome Back
         </h2>
         <p className="text-muted-foreground">
-          Access your administrative dashboard to manage the SPACIO platform efficiently and securely.
+          Access your administrative dashboard to manage the SPACEL platform efficiently and securely.
         </p>
       </div>
 

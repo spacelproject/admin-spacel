@@ -18,7 +18,8 @@ const ProcessRefundModal = ({ isOpen, onClose, booking, onProcessRefund }) => {
   const refundTypeOptions = [
     { value: 'full', label: 'Full Refund' },
     { value: 'partial', label: 'Partial Refund' },
-    { value: 'service_fee', label: 'Service Fee Only' }
+    { value: 'service_fee', label: 'Service Fee Only' },
+    { value: 'split_50_50', label: '50/50 Split (After Platform Fee)' }
   ];
 
   const refundReasonOptions = [
@@ -40,6 +41,25 @@ const ProcessRefundModal = ({ isOpen, onClose, booking, onProcessRefund }) => {
     }
   }, [booking]);
 
+  // Keyboard navigation
+  useEffect(() => {
+    const handleEscape = (e) => {
+      if (e.key === 'Escape' && isOpen && !isSubmitting) {
+        handleClose();
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isOpen, isSubmitting]);
+
+  // Focus management
+  useEffect(() => {
+    if (isOpen) {
+      const firstInput = document.querySelector('[data-refund-modal] input, [data-refund-modal] select');
+      firstInput?.focus();
+    }
+  }, [isOpen]);
+
   if (!isOpen || !booking) return null;
 
   const calculateRefundAmount = () => {
@@ -50,6 +70,16 @@ const ProcessRefundModal = ({ isOpen, onClose, booking, onProcessRefund }) => {
         return booking?.serviceFee || 0;
       case 'partial':
         return refundData?.amount || 0;
+      case 'split_50_50':
+        // Calculate: (Total - Platform Application Fee) / 2
+        // Platform Application Fee = Service Fee + Processing Fee + Commission
+        const totalPaid = booking?.total || 0;
+        const serviceFee = booking?.serviceFee || 0;
+        const processingFee = booking?.processingFee || 0;
+        const commission = booking?.raw?.commission_partner || 0;
+        const platformFee = serviceFee + processingFee + commission;
+        const remainingAfterFee = totalPaid - platformFee;
+        return remainingAfterFee / 2; // 50% of remaining
       default:
         return 0;
     }
@@ -74,7 +104,7 @@ const ProcessRefundModal = ({ isOpen, onClose, booking, onProcessRefund }) => {
     }
 
     if (refundAmount <= 0) {
-      showToast('Refund amount must be greater than $0', 'error');
+      showToast('Refund amount must be greater than A$0', 'error');
       return;
     }
 
@@ -91,30 +121,20 @@ const ProcessRefundModal = ({ isOpen, onClose, booking, onProcessRefund }) => {
     setIsSubmitting(true);
 
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      const refundInfo = {
-        bookingId: booking?.id,
-        type: refundData?.type,
-        amount: refundAmount,
-        reason: refundData?.reason,
-        notes: refundData?.notes,
-        processedAt: new Date()?.toISOString()
-      };
-
-      onProcessRefund?.(refundInfo);
-      showToast(`Refund of $${refundAmount} processed successfully`, 'success');
+      await onProcessRefund?.(booking?.id, refundAmount, refundData?.type, refundData?.reason, refundData?.notes);
+      showToast(`Refund of A$${(Math.round((refundAmount || 0) * 100) / 100).toFixed(2)} processed successfully`, 'success');
       handleClose();
     } catch (error) {
-      console.error('Error processing refund:', error);
-      showToast('Failed to process refund', 'error');
+      console.error('❌ [MODAL] Error processing refund:', error);
+      const errorMessage = error?.message || error?.error_description || 'Unknown error occurred. Please check the transaction ID and try again.';
+      showToast(`Failed to process refund: ${errorMessage}`, 'error');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleClose = () => {
+    if (isSubmitting) return;
     setRefundData({
       type: 'full',
       amount: booking?.total || 0,
@@ -128,129 +148,200 @@ const ProcessRefundModal = ({ isOpen, onClose, booking, onProcessRefund }) => {
   const refundAmount = calculateRefundAmount();
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-modal p-4">
-      <div className="bg-card rounded-lg shadow-modal w-full max-w-lg max-h-[90vh] overflow-hidden">
+    <div className="fixed inset-0 z-modal flex items-stretch justify-end" data-refund-modal>
+      {/* Overlay */}
+      <div
+        className="absolute inset-0 bg-black/40"
+        onClick={handleClose}
+        aria-label="Close modal"
+      />
+
+      {/* Sheet Panel */}
+      <div className="relative ml-auto h-full w-full max-w-xl sm:max-w-2xl bg-slate-50 border-l border-border shadow-modal flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-border">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
-              <Icon name="DollarSign" size={20} className="text-red-600" />
-            </div>
-            <div>
-              <h2 className="text-xl font-semibold text-foreground">Process Refund</h2>
-              <p className="text-sm text-muted-foreground">Booking ID: {booking?.id}</p>
+        <div className="sticky top-0 z-[1] flex items-center justify-between px-6 py-4 border-b border-border bg-card/90 backdrop-blur">
+          <div className="flex items-center space-x-4">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                Process refund
+              </span>
+              <h2 className="text-[17px] font-semibold text-foreground line-clamp-1">
+                {booking?.guestName} - {booking?.spaceName}
+              </h2>
             </div>
           </div>
           <Button
             variant="ghost"
             size="sm"
-            iconName="X"
             onClick={handleClose}
+            iconName="X"
+            className="rounded-full hover:bg-muted"
             disabled={isSubmitting}
+            aria-label="Close modal"
           />
         </div>
 
-        {/* Content */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto max-h-[70vh]">
-          {/* Booking Summary */}
-          <div className="bg-muted/50 rounded-lg p-4 space-y-3">
-            <h3 className="font-medium text-foreground">Booking Summary</h3>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <span className="text-muted-foreground">Guest:</span>
-                <p className="font-medium text-foreground">{booking?.guestName}</p>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Payment Method:</span>
-                <p className="font-medium text-foreground">{booking?.paymentMethod}</p>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Subtotal:</span>
-                <p className="font-medium text-foreground">${booking?.subtotal}</p>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Service Fee:</span>
-                <p className="font-medium text-foreground">${booking?.serviceFee}</p>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Taxes:</span>
-                <p className="font-medium text-foreground">${booking?.taxes}</p>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Total Paid:</span>
-                <p className="font-semibold text-foreground">${booking?.total}</p>
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-5">
+            {/* Booking Summary */}
+            <div className="rounded-2xl bg-card px-5 py-4 shadow-sm">
+              <h3 className="text-xs font-semibold tracking-[0.14em] uppercase text-muted-foreground mb-3">
+                Booking Summary
+              </h3>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-xs text-muted-foreground">Guest:</span>
+                  <p className="font-semibold text-foreground mt-0.5">{booking?.guestName}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground">Payment Method:</span>
+                  <p className="font-semibold text-foreground mt-0.5">{booking?.paymentMethod}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground">Base Amount:</span>
+                  <p className="font-semibold text-foreground mt-0.5">A${(booking?.baseAmount || booking?.subtotal || 0).toFixed(2)}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground">Service Fee:</span>
+                  <p className="font-semibold text-foreground mt-0.5">A${(booking?.serviceFee || 0).toFixed(2)}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground">Processing Fee:</span>
+                  <p className="font-semibold text-foreground mt-0.5">A${(booking?.processingFee || 0).toFixed(2)}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground">Total Paid:</span>
+                  <p className="font-semibold text-foreground mt-0.5">A${(booking?.total || 0).toFixed(2)}</p>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Refund Details */}
-          <div className="space-y-4">
-            <h3 className="font-medium text-foreground">Refund Details</h3>
-            
-            <Select
-              label="Refund Type"
-              options={refundTypeOptions}
-              value={refundData?.type}
-              onChange={(value) => handleInputChange('type', value)}
-              required
-            />
-
-            {refundData?.type === 'partial' && (
-              <Input
-                label="Custom Refund Amount"
-                type="number"
-                placeholder="Enter amount"
-                value={refundData?.amount}
-                onChange={(e) => handleInputChange('amount', parseFloat(e?.target?.value) || 0)}
-                min={0}
-                max={booking?.total}
-                step="0.01"
+            {/* Refund Details */}
+            <div className="rounded-2xl bg-card px-5 py-4 shadow-sm space-y-4">
+              <h3 className="text-xs font-semibold tracking-[0.14em] uppercase text-muted-foreground">
+                Refund Details
+              </h3>
+              
+              <Select
+                label="Refund Type"
+                options={refundTypeOptions}
+                value={refundData?.type}
+                onChange={(value) => handleInputChange('type', value)}
                 required
+                disabled={isSubmitting}
               />
-            )}
 
-            <Select
-              label="Refund Reason"
-              options={refundReasonOptions}
-              value={refundData?.reason}
-              onChange={(value) => handleInputChange('reason', value)}
-              placeholder="Select reason for refund"
-              required
-            />
+              {refundData?.type === 'partial' && (
+                <Input
+                  label="Custom Refund Amount"
+                  type="number"
+                  placeholder="Enter amount"
+                  value={refundData?.amount}
+                  onChange={(e) => handleInputChange('amount', parseFloat(e?.target?.value) || 0)}
+                  min={0}
+                  max={booking?.total}
+                  step="0.01"
+                  required
+                  disabled={isSubmitting}
+                />
+              )}
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">
-                Additional Notes (Optional)
-              </label>
-              <textarea
-                className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-sm"
-                rows={3}
-                placeholder="Enter any additional notes about the refund"
-                value={refundData?.notes}
-                onChange={(e) => handleInputChange('notes', e?.target?.value)}
+              {refundData?.type === 'split_50_50' && (
+                <div className="rounded-lg bg-muted/50 p-4 space-y-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Total Paid:</span>
+                    <span className="font-semibold">A${(booking?.total || 0).toFixed(2)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Platform Fee:</span>
+                    <span className="font-semibold">
+                      A${((booking?.serviceFee || 0) + (booking?.processingFee || 0) + (booking?.raw?.commission_partner || 0)).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between border-t border-border pt-2">
+                    <span className="text-muted-foreground">Remaining (50/50 Split):</span>
+                    <span className="font-semibold">
+                      {(() => {
+                        const total = booking?.total || 0;
+                        const serviceFee = booking?.serviceFee || 0;
+                        const processingFee = booking?.processingFee || 0;
+                        const commission = booking?.raw?.commission_partner || 0;
+                        const platformFee = serviceFee + processingFee + commission;
+                        const remaining = (total - platformFee) / 2;
+                        return `A$${remaining.toFixed(2)} each`;
+                      })()}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Platform keeps full application fee. Remaining amount split equally between seeker and partner.
+                  </p>
+                </div>
+              )}
+
+              <Select
+                label="Refund Reason"
+                options={refundReasonOptions}
+                value={refundData?.reason}
+                onChange={(value) => handleInputChange('reason', value)}
+                placeholder="Select reason for refund"
+                required
+                disabled={isSubmitting}
               />
-            </div>
-          </div>
 
-          {/* Refund Summary */}
-          <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
-            <div className="flex items-center space-x-2 mb-2">
-              <Icon name="Info" size={16} className="text-primary" />
-              <h4 className="font-medium text-foreground">Refund Summary</h4>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">
+                  Additional Notes (Optional)
+                </label>
+                <textarea
+                  className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-sm resize-none"
+                  rows={4}
+                  placeholder="Enter any additional notes about the refund"
+                  value={refundData?.notes}
+                  onChange={(e) => handleInputChange('notes', e?.target?.value)}
+                  disabled={isSubmitting}
+                />
+              </div>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Amount to be refunded:</span>
-              <span className="text-lg font-semibold text-primary">${refundAmount}</span>
+
+            {/* Refund Summary */}
+            <div className="rounded-2xl bg-primary/5 border border-primary/20 px-5 py-4 shadow-sm">
+              <div className="flex items-center space-x-2 mb-2">
+                <Icon name="Info" size={16} className="text-primary flex-shrink-0" />
+                <h4 className="text-sm font-semibold text-foreground">Refund Summary</h4>
+              </div>
+              {refundData?.type === 'split_50_50' ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Seeker Refund:</span>
+                    <span className="text-lg font-bold text-primary">A${(Math.round((refundAmount || 0) * 100) / 100).toFixed(2)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Partner Refund:</span>
+                    <span className="text-lg font-bold text-primary">A${(Math.round((refundAmount || 0) * 100) / 100).toFixed(2)}</span>
+                  </div>
+                  <div className="flex items-center justify-between border-t border-primary/20 pt-2">
+                    <span className="text-sm font-semibold text-foreground">Total Refunded:</span>
+                    <span className="text-lg font-bold text-primary">A${(Math.round((refundAmount || 0) * 200) / 100).toFixed(2)}</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Amount to be refunded:</span>
+                  <span className="text-lg font-bold text-primary">A${(Math.round((refundAmount || 0) * 100) / 100).toFixed(2)}</span>
+                </div>
+              )}
             </div>
-          </div>
-        </form>
+          </form>
+        </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end space-x-3 p-6 border-t border-border">
+        <div className="flex items-center justify-between px-6 py-3 border-t border-border bg-card/96 backdrop-blur flex-shrink-0">
           <Button 
             variant="outline" 
             onClick={handleClose}
             disabled={isSubmitting}
+            size="sm"
           >
             Cancel
           </Button>
@@ -261,8 +352,9 @@ const ProcessRefundModal = ({ isOpen, onClose, booking, onProcessRefund }) => {
             iconName="DollarSign"
             iconPosition="left"
             disabled={!refundData?.reason || refundAmount <= 0}
+            size="sm"
           >
-            {isSubmitting ? 'Processing Refund...' : `Process $${refundAmount} Refund`}
+            {isSubmitting ? 'Processing...' : `Process A$${(Math.round((refundAmount || 0) * 100) / 100).toFixed(2)}`}
           </Button>
         </div>
       </div>

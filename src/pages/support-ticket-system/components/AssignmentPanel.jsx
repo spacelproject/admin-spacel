@@ -1,12 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Button from '../../../components/ui/Button';
 import Select from '../../../components/ui/Select';
-
+import LoadingSpinner from '../../../components/ui/LoadingSpinner';
 import Image from '../../../components/AppImage';
 
-const AssignmentPanel = ({ supportAgents, onAssignTickets }) => {
+const AssignmentPanel = ({ supportAgents, onAssignTickets, loading = false }) => {
   const [selectedAgent, setSelectedAgent] = useState('');
   const [autoAssign, setAutoAssign] = useState(true);
+
+  useEffect(() => {
+    // Load auto-assign preference from localStorage
+    const saved = localStorage.getItem('support_auto_assign');
+    if (saved !== null) {
+      setAutoAssign(saved === 'true');
+    }
+  }, []);
+
+  const handleAutoAssignToggle = (checked) => {
+    setAutoAssign(checked);
+    localStorage.setItem('support_auto_assign', checked.toString());
+  };
 
   const agentOptions = supportAgents.map(agent => ({
     value: agent.id,
@@ -24,12 +37,28 @@ const AssignmentPanel = ({ supportAgents, onAssignTickets }) => {
     onAssignTickets('auto');
   };
 
+  if (loading) {
+    return (
+      <div className="bg-card border border-border rounded-lg p-6 mb-6">
+        <LoadingSpinner text="Loading support team..." />
+      </div>
+    )
+  }
+
+  if (!supportAgents || supportAgents.length === 0) {
+    return (
+      <div className="bg-card border border-border rounded-lg p-6 mb-6">
+        <p className="text-muted-foreground">No support agents found. Please add support agents in admin users.</p>
+      </div>
+    )
+  }
+
   return (
-    <div className="bg-card border border-border rounded-lg p-6 mb-6">
-      <h3 className="text-lg font-semibold text-foreground mb-4">Support Team Workload</h3>
+    <div className="bg-card border border-border rounded-lg p-6">
+      <h3 className="text-lg font-semibold text-foreground mb-6">Support Team Workload</h3>
       
       {/* Agent Workload Display */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         {supportAgents.map((agent) => (
           <div key={agent.id} className="bg-muted rounded-lg p-4">
             <div className="flex items-center space-x-3 mb-3">
@@ -81,15 +110,15 @@ const AssignmentPanel = ({ supportAgents, onAssignTickets }) => {
       </div>
 
       {/* Assignment Controls */}
-      <div className="border-t border-border pt-4">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
+      <div className="border-t border-border pt-6">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2">
               <input
                 type="checkbox"
                 id="autoAssign"
                 checked={autoAssign}
-                onChange={(e) => setAutoAssign(e.target.checked)}
+                onChange={(e) => handleAutoAssignToggle(e.target.checked)}
                 className="rounded border-border"
               />
               <label htmlFor="autoAssign" className="text-sm font-medium text-foreground">
@@ -110,7 +139,7 @@ const AssignmentPanel = ({ supportAgents, onAssignTickets }) => {
             )}
           </div>
 
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center gap-3">
             <Select
               options={agentOptions}
               value={selectedAgent}
@@ -131,7 +160,7 @@ const AssignmentPanel = ({ supportAgents, onAssignTickets }) => {
       </div>
 
       {/* Quick Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-4 border-t border-border">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-6 mt-8 pt-6 border-t border-border">
         <div className="text-center">
           <div className="text-2xl font-bold text-foreground">
             {supportAgents.reduce((sum, agent) => sum + agent.activeTickets, 0)}
@@ -146,13 +175,9 @@ const AssignmentPanel = ({ supportAgents, onAssignTickets }) => {
         </div>
         <div className="text-center">
           <div className="text-2xl font-bold text-foreground">
-            {Math.round(supportAgents.reduce((sum, agent) => sum + agent.satisfactionRate, 0) / supportAgents.length)}%
+            {supportAgents.length > 0 ? Math.round(supportAgents.reduce((sum, agent) => sum + agent.satisfactionRate, 0) / supportAgents.length) : 0}%
           </div>
           <div className="text-sm text-muted-foreground">Avg Satisfaction</div>
-        </div>
-        <div className="text-center">
-          <div className="text-2xl font-bold text-foreground">2.3h</div>
-          <div className="text-sm text-muted-foreground">Avg Resolution</div>
         </div>
       </div>
     </div>

@@ -1,0 +1,20 @@
+# Stripe Connect Account IDs to Delete
+# These accounts have been cleared from the database
+# Delete them from Stripe using one of these methods:
+#
+# 1. Stripe Dashboard: https://dashboard.stripe.com/connect/accounts
+# 2. Stripe API: DELETE /v1/accounts/{account_id}
+# 3. Node.js script: node scripts/clean-all-stripe-connect-accounts.js
+
+acct_1SOHF0FXNprlvwdp
+acct_1SRuVKFJo9TaauxI
+acct_1Sg1zhFWXGuG9U5A
+acct_1Sg0IkF23F5jXQTq
+acct_1SfjypFL9Vv4egls
+acct_1SRyIaFHtDFNarjB
+acct_1SNoc6FObsQKpnjI
+acct_1SOWNGFSQLa4wnhp
+acct_1STvljFDjmhJUeqR
+acct_1SS2AyFMWgTR662c
+acct_1SdgWLF38VKxRo1p
+

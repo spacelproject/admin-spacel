@@ -7,8 +7,6 @@ const SupportStats = ({ stats }) => {
       id: 'total',
       title: 'Total Tickets',
       value: stats.total,
-      change: '+12%',
-      changeType: 'increase',
       icon: 'Ticket',
       color: 'blue'
     },
@@ -16,8 +14,6 @@ const SupportStats = ({ stats }) => {
       id: 'open',
       title: 'Open Tickets',
       value: stats.open,
-      change: '+5%',
-      changeType: 'increase',
       icon: 'AlertCircle',
       color: 'orange'
     },
@@ -25,8 +21,6 @@ const SupportStats = ({ stats }) => {
       id: 'resolved',
       title: 'Resolved Today',
       value: stats.resolvedToday,
-      change: '+18%',
-      changeType: 'increase',
       icon: 'CheckCircle',
       color: 'green'
     },
@@ -34,8 +28,6 @@ const SupportStats = ({ stats }) => {
       id: 'avgResponse',
       title: 'Avg Response Time',
       value: stats.avgResponseTime,
-      change: '-15%',
-      changeType: 'decrease',
       icon: 'Clock',
       color: 'purple'
     },
@@ -43,8 +35,6 @@ const SupportStats = ({ stats }) => {
       id: 'satisfaction',
       title: 'Satisfaction Rate',
       value: `${stats.satisfactionRate}%`,
-      change: '+3%',
-      changeType: 'increase',
       icon: 'Star',
       color: 'yellow'
     },
@@ -52,8 +42,6 @@ const SupportStats = ({ stats }) => {
       id: 'unassigned',
       title: 'Unassigned',
       value: stats.unassigned,
-      change: '-8%',
-      changeType: 'decrease',
       icon: 'UserX',
       color: 'red'
     }
@@ -71,25 +59,18 @@ const SupportStats = ({ stats }) => {
     return colors[color] || colors.blue;
   };
 
-  const getChangeColor = (changeType) => {
-    return changeType === 'increase' ? 'text-green-600' : 'text-red-600';
-  };
-
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6 mb-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6">
       {statCards.map((card) => (
         <div key={card.id} className="bg-card border border-border rounded-lg p-6 hover:shadow-card transition-smooth">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-5">
             <div className={`p-3 rounded-lg border ${getColorClasses(card.color)}`}>
               <Icon name={card.icon} size={24} />
             </div>
-            <span className={`text-sm font-medium ${getChangeColor(card.changeType)}`}>
-              {card.change}
-            </span>
           </div>
           
           <div>
-            <h3 className="text-2xl font-bold text-foreground mb-1">{card.value}</h3>
+            <h3 className="text-2xl font-bold text-foreground mb-2">{card.value}</h3>
             <p className="text-sm text-muted-foreground">{card.title}</p>
           </div>
         </div>

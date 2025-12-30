@@ -80,13 +80,13 @@ const QuickActions = () => {
   const getColorClasses = (color) => {
     switch (color) {
       case 'success':
-        return 'text-success bg-success/10 hover:bg-success/20';
+        return 'text-green-600 bg-green-50';
       case 'warning':
-        return 'text-warning bg-warning/10 hover:bg-warning/20';
+        return 'text-amber-600 bg-amber-50';
       case 'secondary':
-        return 'text-secondary bg-secondary/10 hover:bg-secondary/20';
+        return 'text-purple-600 bg-purple-50';
       default:
-        return 'text-primary bg-primary/10 hover:bg-primary/20';
+        return 'text-blue-600 bg-blue-50';
     }
   };
 
@@ -95,64 +95,75 @@ const QuickActions = () => {
   };
 
   return (
-    <div className="bg-card border border-border rounded-lg p-6 card-shadow">
-      <h3 className="text-lg font-semibold text-card-foreground mb-4">Quick Actions</h3>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <div className="bg-white border border-gray-200 rounded-lg p-4 card-shadow h-full flex flex-col">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h3 className="text-base font-semibold text-gray-900 tracking-tight">Quick Actions</h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Jump straight into the most common admin tasks without digging through menus.
+          </p>
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto min-h-0 flex flex-col">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 flex-1 content-start">
         {actions?.map((action) => (
           <button
             key={action?.id}
             onClick={action?.onClick}
-            className="flex items-center space-x-3 p-4 border border-border rounded-lg hover:bg-muted/30 transition-smooth text-left hover:shadow-sm active:scale-95"
+            className="group flex flex-col items-start justify-start p-3.5 bg-gradient-to-br from-gray-50 to-white border border-gray-200 rounded-lg hover:border-blue-300 hover:shadow-md transition-all duration-200 text-left active:scale-[0.98] h-full"
           >
-            <div className={`p-2 rounded-lg ${getColorClasses(action?.color)}`}>
-              <Icon name={action?.icon} size={20} />
+            <div className={`p-2.5 rounded-lg mb-2.5 ${getColorClasses(action?.color)} group-hover:scale-110 transition-transform duration-200`}>
+              <Icon name={action?.icon} size={18} />
             </div>
-            <div className="flex-1 min-w-0">
-              <h4 className="text-sm font-medium text-card-foreground">
+            <div className="flex-1 w-full flex flex-col justify-start">
+              <h4 className="text-sm font-semibold text-gray-900 mb-1 group-hover:text-blue-600 transition-colors leading-tight">
                 {action?.title}
               </h4>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs font-normal text-gray-500 line-clamp-2 leading-relaxed flex-1">
                 {action?.description}
               </p>
             </div>
           </button>
         ))}
-      </div>
-      {/* More Actions Expandable Section */}
-      {showMoreActions && (
-        <div className="mt-4 pt-4 border-t border-border">
-          <h4 className="text-sm font-medium text-card-foreground mb-3">More Actions</h4>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {moreActions?.map((action) => (
-              <button
-                key={action?.id}
-                onClick={action?.onClick}
-                className="flex items-center space-x-2 p-3 border border-border rounded-lg hover:bg-muted/30 transition-smooth text-left text-sm hover:shadow-sm active:scale-95"
-              >
-                <div className={`p-1.5 rounded ${getColorClasses(action?.color)}`}>
-                  <Icon name={action?.icon} size={16} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h5 className="text-xs font-medium text-card-foreground">
-                    {action?.title}
-                  </h5>
-                  <p className="text-xs text-muted-foreground">
-                    {action?.description}
-                  </p>
-                </div>
-              </button>
-            ))}
-          </div>
         </div>
-      )}
-      <div className="mt-6 pt-4 border-t border-border">
+        {/* More Actions Expandable Section */}
+        {showMoreActions && (
+          <div className="mt-2.5 pt-2.5 border-t border-gray-200 flex-1 flex flex-col">
+            <h4 className="text-sm font-semibold text-gray-900 mb-2.5">More Actions</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 flex-1 content-start">
+              {moreActions?.map((action) => (
+                <button
+                  key={action?.id}
+                  onClick={action?.onClick}
+                  className="group flex flex-col items-start justify-start p-3 bg-gradient-to-br from-gray-50 to-white border border-gray-200 rounded-lg hover:border-blue-300 hover:shadow-md transition-all duration-200 text-left active:scale-[0.98] h-full"
+                >
+                  <div className={`p-2 rounded-lg mb-2 ${getColorClasses(action?.color)} group-hover:scale-110 transition-transform duration-200`}>
+                    <Icon name={action?.icon} size={18} />
+                  </div>
+                  <div className="flex-1 w-full flex flex-col justify-start">
+                    <h5 className="text-sm font-semibold text-gray-900 mb-1 group-hover:text-blue-600 transition-colors leading-tight">
+                      {action?.title}
+                    </h5>
+                    <p className="text-xs font-normal text-gray-500 line-clamp-2 leading-relaxed flex-1">
+                      {action?.description}
+                    </p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="mt-auto pt-2.5 border-t border-gray-200 flex-shrink-0">
         <Button 
           variant="outline" 
           fullWidth 
-          iconName={showMoreActions ? "ChevronUp" : "Plus"}
+          size="xs"
+          iconName={showMoreActions ? "ChevronUp" : "ChevronDown"}
           onClick={handleMoreActions}
+          className="text-xs font-medium"
         >
-          {showMoreActions ? 'Hide More Actions' : 'More Actions'}
+          {showMoreActions ? 'Show Less' : 'Show More Actions'}
         </Button>
       </div>
     </div>

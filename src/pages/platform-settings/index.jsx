@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import AdminSidebar from '../../components/ui/AdminSidebar';
 import UserProfileDropdown from '../../components/ui/UserProfileDropdown';
+import NotificationBell from '../../components/NotificationBell';
 import BreadcrumbNavigation from '../../components/ui/BreadcrumbNavigation';
 import Button from '../../components/ui/Button';
+import { supabase } from '../../lib/supabase';
 import Icon from '../../components/AppIcon';
 
 // Import tab components
@@ -10,6 +12,7 @@ import GeneralSettingsTab from './components/GeneralSettingsTab';
 import PaymentConfigTab from './components/PaymentConfigTab';
 import NotificationSettingsTab from './components/NotificationSettingsTab';
 import SecurityPoliciesTab from './components/SecurityPoliciesTab';
+import StaffInvitesTab from './components/StaffInvitesTab';
 import SettingsSearch from './components/SettingsSearch';
 import ChangeHistoryPanel from './components/ChangeHistoryPanel';
 
@@ -43,6 +46,12 @@ const PlatformSettings = () => {
       label: 'Security',
       icon: 'Shield',
       component: SecurityPoliciesTab
+    },
+    {
+      id: 'staff-invites',
+      label: 'Staff & Invites',
+      icon: 'UserPlus',
+      component: StaffInvitesTab
     }
   ];
 
@@ -63,8 +72,34 @@ const PlatformSettings = () => {
     setSearchQuery('');
   };
 
-  const handleExportConfig = () => {
-    console.log('Exporting configuration...');
+  const handleExportConfig = async () => {
+    try {
+      const { exportData } = await import('../../utils/exportUtils');
+      
+      // Get all platform settings for export
+      const { data: settings } = await supabase
+        .from('platform_settings')
+        .select('*')
+        .order('category, setting_key');
+      
+      if (settings && settings.length > 0) {
+        const exportDataArray = settings.map(setting => ({
+          'Category': setting.category || 'N/A',
+          'Setting Key': setting.setting_key || 'N/A',
+          'Setting Value': typeof setting.setting_value === 'object' 
+            ? JSON.stringify(setting.setting_value) 
+            : String(setting.setting_value || ''),
+          'Setting Type': setting.setting_type || 'N/A',
+          'Description': setting.description || 'N/A',
+          'Last Updated': setting.updated_at ? new Date(setting.updated_at).toLocaleString() : 'N/A'
+        }));
+        
+        const fileName = `platform_settings_export_${new Date().toISOString().split('T')[0]}`;
+        await exportData(exportDataArray, fileName, 'csv');
+      }
+    } catch (error) {
+      console.error('Error exporting configuration:', error);
+    }
   };
 
   const handleImportConfig = () => {
@@ -132,7 +167,10 @@ const PlatformSettings = () => {
               </div>
             </div>
             
-            <UserProfileDropdown />
+            <div className="flex items-center space-x-4">
+              <NotificationBell />
+              <UserProfileDropdown />
+            </div>
           </div>
         </header>
 

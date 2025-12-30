@@ -11,8 +11,7 @@ const BulkActions = ({ selectedCount, onBulkAction, onClearSelection }) => {
     { value: 'confirm', label: 'Confirm Bookings' },
     { value: 'cancel', label: 'Cancel Bookings' },
     { value: 'refund', label: 'Process Refunds' },
-    { value: 'export', label: 'Export Data' },
-    { value: 'send-message', label: 'Send Message' }
+    { value: 'export', label: 'Export Data' }
   ];
 
   const handleExecuteAction = () => {

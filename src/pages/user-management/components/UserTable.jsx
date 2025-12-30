@@ -21,7 +21,7 @@ const UserTable = ({ users, onUserSelect, onSelectAll, selectedUsers, onUserActi
     let aValue = a?.[sortField];
     let bValue = b?.[sortField];
 
-    if (sortField === 'registrationDate' || sortField === 'lastActivity') {
+    if (sortField === 'joinedDate' || sortField === 'lastActive') {
       aValue = new Date(aValue);
       bValue = new Date(bValue);
     }
@@ -49,7 +49,7 @@ const UserTable = ({ users, onUserSelect, onSelectAll, selectedUsers, onUserActi
 
     const config = statusConfig?.[status] || statusConfig?.inactive;
     return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${config?.color}`}>
+      <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${config?.color}`}>
         {config?.label}
       </span>
     );
@@ -58,12 +58,13 @@ const UserTable = ({ users, onUserSelect, onSelectAll, selectedUsers, onUserActi
   const getUserTypeBadge = (type) => {
     const typeConfig = {
       partner: { color: 'text-primary bg-primary/10', label: 'Partner' },
-      seeker: { color: 'text-secondary bg-secondary/10', label: 'Seeker' }
+      seeker: { color: 'text-secondary bg-secondary/10', label: 'Seeker' },
+      admin: { color: 'text-warning bg-warning/10', label: 'Admin' }
     };
 
     const config = typeConfig?.[type] || typeConfig?.seeker;
     return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${config?.color}`}>
+      <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${config?.color}`}>
         {config?.label}
       </span>
     );
@@ -71,7 +72,7 @@ const UserTable = ({ users, onUserSelect, onSelectAll, selectedUsers, onUserActi
 
   const SortableHeader = ({ field, children }) => (
     <th 
-      className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-muted/50 transition-smooth"
+      className="px-1.5 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-muted/50 transition-smooth"
       onClick={() => handleSort(field)}
     >
       <div className="flex items-center space-x-1">
@@ -86,14 +87,14 @@ const UserTable = ({ users, onUserSelect, onSelectAll, selectedUsers, onUserActi
   );
 
   return (
-    <div className="bg-card border border-border rounded-lg overflow-hidden card-shadow">
+    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden card-shadow">
       {/* Desktop Table */}
       <div className="hidden md:block">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-border">
-            <thead className="bg-muted/30">
+        <div className="overflow-x-hidden w-full">
+          <table className="w-full table-auto text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="px-4 lg:px-6 py-3 text-left w-12">
+                <th className="px-4 py-3 text-left w-10">
                   <Checkbox
                     checked={selectedUsers?.length === users?.length && users?.length > 0}
                     onChange={(e) => onSelectAll(e?.target?.checked)}
@@ -102,86 +103,130 @@ const UserTable = ({ users, onUserSelect, onSelectAll, selectedUsers, onUserActi
                 </th>
                 <SortableHeader field="name">User</SortableHeader>
                 <SortableHeader field="email">Email</SortableHeader>
-                <SortableHeader field="userType">Type</SortableHeader>
-                <SortableHeader field="registrationDate">Registered</SortableHeader>
+                <SortableHeader field="role">Type</SortableHeader>
+                <SortableHeader field="joinedDate">Registered</SortableHeader>
                 <SortableHeader field="status">Status</SortableHeader>
-                <SortableHeader field="lastActivity">Last Activity</SortableHeader>
-                <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                <SortableHeader field="lastActive">Last Activity</SortableHeader>
+                <th className="px-4 py-3 text-center text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  Payout
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-card divide-y divide-border">
-              {sortedUsers?.map((user) => (
+            <tbody className="bg-white">
+              {sortedUsers?.map((user) => {
+                const isSelected = selectedUsers?.includes(user?.id);
+                return (
                 <tr 
-                  key={user?.id} 
-                  className="hover:bg-muted/30 transition-smooth cursor-pointer"
+                  key={user?.id}
+                  className={`transition-smooth cursor-pointer border-b last:border-b-0 ${
+                    isSelected ? 'bg-blue-50/70' : 'hover:bg-gray-50'
+                  }`}
                   onClick={() => onUserClick(user)}
                 >
-                  <td className="px-4 lg:px-6 py-4 whitespace-nowrap" onClick={(e) => e?.stopPropagation()}>
+                  <td className="px-4 py-3" onClick={(e) => e?.stopPropagation()}>
                     <Checkbox
                       checked={selectedUsers?.includes(user?.id)}
                       onChange={(e) => onUserSelect(user?.id, e?.target?.checked)}
                     />
                   </td>
-                  <td className="px-4 lg:px-6 py-4 whitespace-nowrap">
+                  <td className="px-4 py-3 min-w-[180px] max-w-[240px]">
                     <div className="flex items-center space-x-3">
                       <Image
                         src={user?.avatar}
                         alt={user?.name}
-                        className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+                        className="w-8 h-8 rounded-full object-cover flex-shrink-0"
                       />
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-foreground truncate">{user?.name}</p>
-                        <p className="text-xs text-muted-foreground truncate">ID: {user?.id}</p>
+                        <p className="text-sm font-medium text-gray-900 truncate">{user?.name}</p>
+                        <p className="text-xs text-gray-400 truncate">ID: {user?.id?.slice(0, 8)}...</p>
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 lg:px-6 py-4 whitespace-nowrap">
-                    <p className="text-sm text-foreground truncate max-w-xs">{user?.email}</p>
+                  <td className="px-4 py-3 min-w-[180px] max-w-[240px]">
+                    <p className="text-sm text-gray-700 truncate">{user?.email}</p>
                   </td>
-                  <td className="px-4 lg:px-6 py-4 whitespace-nowrap">
-                    {getUserTypeBadge(user?.userType)}
+                  <td className="px-4 py-3">
+                    {getUserTypeBadge(user?.role)}
                   </td>
-                  <td className="px-4 lg:px-6 py-4 whitespace-nowrap">
-                    <p className="text-sm text-foreground">{formatDate(user?.registrationDate)}</p>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <p className="text-sm text-gray-700">{formatDate(user?.joinedDate)}</p>
                   </td>
-                  <td className="px-4 lg:px-6 py-4 whitespace-nowrap">
+                  <td className="px-4 py-3">
                     {getStatusBadge(user?.status)}
                   </td>
-                  <td className="px-4 lg:px-6 py-4 whitespace-nowrap">
-                    <p className="text-sm text-foreground">{formatDate(user?.lastActivity)}</p>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <p className="text-sm text-gray-700">{formatDate(user?.lastActive)}</p>
                   </td>
-                  <td className="px-4 lg:px-6 py-4 whitespace-nowrap" onClick={(e) => e?.stopPropagation()}>
-                    <div className="flex items-center space-x-1">
+                  <td className="px-4 py-3 text-center" onClick={(e) => e?.stopPropagation()}>
+                    {user?.role === 'partner' ? (
+                      <div className="flex items-center justify-center">
+                        {user?.payoutDisabled ? (
+                          <span className="px-2 py-1 rounded-full text-[10px] font-medium text-red-600 bg-red-100 flex items-center space-x-1">
+                            <Icon name="Ban" size={12} />
+                            <span>Disabled</span>
+                          </span>
+                        ) : (
+                          <span className="px-2 py-1 rounded-full text-[10px] font-medium text-green-600 bg-green-100 flex items-center space-x-1">
+                            <Icon name="CheckCircle" size={12} />
+                            <span>Enabled</span>
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3" onClick={(e) => e?.stopPropagation()}>
+                    <div className="flex items-center justify-end space-x-1.5">
                       <Button
                         variant="ghost"
                         size="sm"
                         iconName="Eye"
                         onClick={() => onUserAction('view', user)}
+                        className="p-1.5"
                       />
                       <Button
                         variant="ghost"
                         size="sm"
                         iconName="Edit"
                         onClick={() => onUserAction('edit', user)}
+                        className="p-1.5"
                       />
                       <Button
                         variant="ghost"
                         size="sm"
                         iconName="MessageCircle"
                         onClick={() => onUserAction('message', user)}
+                        className="p-1.5"
                       />
                       <Button
-                        variant="ghost"
+                        variant={user?.status === 'suspended' ? 'success' : 'warning'}
                         size="sm"
-                        iconName={user?.status === 'suspended' ? 'CheckCircle' : 'XCircle'}
+                        iconName={user?.status === 'suspended' ? 'CheckCircle' : 'Ban'}
                         onClick={() => onUserAction(user?.status === 'suspended' ? 'activate' : 'suspend', user)}
-                      />
+                        className="px-2"
+                      >
+                        {user?.status === 'suspended' ? 'Activate' : 'Suspend'}
+                      </Button>
+                      {user?.role === 'partner' && (
+                        <Button
+                          variant={user?.payoutDisabled ? 'success' : 'destructive'}
+                          size="sm"
+                          iconName={user?.payoutDisabled ? 'CheckCircle' : 'Ban'}
+                          onClick={() => onUserAction('toggle-payout', user)}
+                          className="px-2"
+                          title={user?.payoutDisabled ? 'Enable payout' : 'Disable payout'}
+                        >
+                          {user?.payoutDisabled ? 'Enable' : 'Disable'}
+                        </Button>
+                      )}
                     </div>
                   </td>
                 </tr>
-              ))}
+              );})}
             </tbody>
           </table>
         </div>
@@ -226,17 +271,33 @@ const UserTable = ({ users, onUserSelect, onSelectAll, selectedUsers, onUserActi
               <div className="flex items-center justify-between">
                 <span className="text-xs text-muted-foreground">Type:</span>
                 <div className="flex-shrink-0">
-                  {getUserTypeBadge(user?.userType)}
+                  {getUserTypeBadge(user?.role)}
                 </div>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-muted-foreground">Registered:</span>
-                <span className="text-sm text-foreground">{formatDate(user?.registrationDate)}</span>
+                <span className="text-sm text-foreground">{formatDate(user?.joinedDate)}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-muted-foreground">Last Activity:</span>
-                <span className="text-sm text-foreground">{formatDate(user?.lastActivity)}</span>
+                <span className="text-sm text-foreground">{formatDate(user?.lastActive)}</span>
               </div>
+              {user?.role === 'partner' && (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Payout Status:</span>
+                  {user?.payoutDisabled ? (
+                    <span className="px-2 py-1 rounded-full text-[10px] font-medium text-red-600 bg-red-100 flex items-center space-x-1">
+                      <Icon name="Ban" size={12} />
+                      <span>Disabled</span>
+                    </span>
+                  ) : (
+                    <span className="px-2 py-1 rounded-full text-[10px] font-medium text-green-600 bg-green-100 flex items-center space-x-1">
+                      <Icon name="CheckCircle" size={12} />
+                      <span>Enabled</span>
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Actions */}
@@ -264,12 +325,25 @@ const UserTable = ({ users, onUserSelect, onSelectAll, selectedUsers, onUserActi
               <Button
                 variant={user?.status === 'suspended' ? 'success' : 'warning'}
                 size="sm"
-                iconName={user?.status === 'suspended' ? 'CheckCircle' : 'XCircle'}
+                iconName={user?.status === 'suspended' ? 'CheckCircle' : null}
                 onClick={() => onUserAction(user?.status === 'suspended' ? 'activate' : 'suspend', user)}
               >
                 {user?.status === 'suspended' ? 'Activate' : 'Suspend'}
               </Button>
             </div>
+            {user?.role === 'partner' && (
+              <div className="pt-2 border-t border-border" onClick={(e) => e?.stopPropagation()}>
+                <Button
+                  variant={user?.payoutDisabled ? 'success' : 'destructive'}
+                  size="sm"
+                  iconName={user?.payoutDisabled ? 'CheckCircle' : 'Ban'}
+                  onClick={() => onUserAction('toggle-payout', user)}
+                  className="w-full"
+                >
+                  {user?.payoutDisabled ? 'Enable Payout' : 'Disable Payout'}
+                </Button>
+              </div>
+            )}
           </div>
         ))}
       </div>

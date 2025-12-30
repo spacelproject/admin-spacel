@@ -1,13 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Button from '../../../components/ui/Button';
 import Select from '../../../components/ui/Select';
 import { Checkbox } from '../../../components/ui/Checkbox';
 import Icon from '../../../components/AppIcon';
+import { useDataExport } from '../../../hooks/useDataExport';
 
-const DataExportPanel = ({ onExport }) => {
+const DataExportPanel = ({ onExport, selectedDateRange, customDateRange }) => {
   const [exportFormat, setExportFormat] = useState('csv');
   const [selectedColumns, setSelectedColumns] = useState([]);
-  const [dateRange, setDateRange] = useState('30d');
+  const [dateRange, setDateRange] = useState(selectedDateRange || '30d');
+  const { exportData, exporting } = useDataExport();
 
   const formatOptions = [
     { value: 'csv', label: 'CSV' },
@@ -19,8 +21,18 @@ const DataExportPanel = ({ onExport }) => {
     { value: '7d', label: 'Last 7 days' },
     { value: '30d', label: 'Last 30 days' },
     { value: '90d', label: 'Last 3 months' },
-    { value: '1y', label: 'Last year' }
+    { value: '6m', label: 'Last 6 months' },
+    { value: '1y', label: 'Last year' },
+    { value: 'ytd', label: 'Year to date' },
+    { value: 'custom', label: 'Custom range' }
   ];
+  
+  // Update dateRange when selectedDateRange prop changes
+  useEffect(() => {
+    if (selectedDateRange) {
+      setDateRange(selectedDateRange);
+    }
+  }, [selectedDateRange]);
 
   const availableColumns = [
     { id: 'user-data', label: 'User Data' },
@@ -39,15 +51,39 @@ const DataExportPanel = ({ onExport }) => {
     );
   };
 
-  const handleExport = () => {
-    const exportConfig = {
-      format: exportFormat,
-      columns: selectedColumns,
-      dateRange: dateRange,
-      timestamp: new Date().toISOString()
-    };
-    
-    onExport(exportConfig);
+  const handleExport = async () => {
+    if (selectedColumns.length === 0) {
+      console.warn('⚠️ Please select at least one data column to export');
+      return;
+    }
+
+    try {
+      const exportConfig = {
+        format: exportFormat,
+        columns: selectedColumns,
+        dateRange: dateRange,
+        customDateRange: dateRange === 'custom' ? customDateRange : null,
+        timestamp: new Date().toISOString()
+      };
+      
+      const result = await exportData(exportConfig);
+      
+      if (result?.success) {
+        // Call the parent callback if provided
+        if (onExport) {
+          onExport(exportConfig);
+        }
+        
+        // Show success message
+        console.log('✅ Export completed successfully:', result.message || 'File downloaded');
+      } else {
+        console.warn('⚠️ Export completed with warnings:', result?.message);
+      }
+    } catch (error) {
+      console.error('❌ Export failed:', error?.message || error);
+      // Could add error toast notification here
+      throw error; // Re-throw to allow parent to handle
+    }
   };
 
   return (
@@ -94,12 +130,12 @@ const DataExportPanel = ({ onExport }) => {
           <Button
             variant="default"
             onClick={handleExport}
-            disabled={selectedColumns.length === 0}
-            iconName="Download"
+            disabled={selectedColumns.length === 0 || exporting}
+            iconName={exporting ? "Loader2" : "Download"}
             iconPosition="left"
             className="flex-1"
           >
-            Export Data
+            {exporting ? 'Exporting...' : 'Export Data'}
           </Button>
           
           <Button
@@ -107,6 +143,7 @@ const DataExportPanel = ({ onExport }) => {
             onClick={() => setSelectedColumns(availableColumns.map(col => col.id))}
             iconName="CheckSquare"
             iconPosition="left"
+            disabled={exporting}
           >
             Select All
           </Button>
@@ -116,6 +153,7 @@ const DataExportPanel = ({ onExport }) => {
             onClick={() => setSelectedColumns([])}
             iconName="Square"
             iconPosition="left"
+            disabled={exporting}
           >
             Clear All
           </Button>

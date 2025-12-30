@@ -13,14 +13,17 @@ const ContentEditor = ({ item, type, onClose, onSave }) => {
     audience: item?.audience || 'all_users',
     scheduledDate: item?.scheduledDate ? new Date(item.scheduledDate).toISOString().slice(0, 16) : '',
     tags: item?.tags || [],
-    seoTitle: item?.seoTitle || '',
-    seoDescription: item?.seoDescription || '',
-    enableNotifications: item?.enableNotifications || false,
-    category: item?.category || 'user_guide'
+    seoTitle: item?.metadata?.seoTitle || '',
+    seoDescription: item?.metadata?.seoDescription || '',
+    enableNotifications: item?.metadata?.enableNotifications || false,
+    category: item?.category || 'user_guide',
+    priority: item?.priority || 'medium'
   });
 
   const [activeTab, setActiveTab] = useState('content');
   const [showPreview, setShowPreview] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [tagInput, setTagInput] = useState('');
   const textareaRef = useRef(null);
 
   const statusOptions = [
@@ -32,8 +35,8 @@ const ContentEditor = ({ item, type, onClose, onSave }) => {
 
   const audienceOptions = [
     { value: 'all_users', label: 'All Users' },
-    { value: 'hosts_only', label: 'Hosts Only' },
-    { value: 'guests_only', label: 'Guests Only' }
+    { value: 'seekers_only', label: 'Seekers Only' },
+    { value: 'partners_only', label: 'Partners Only' }
   ];
 
   const categoryOptions = [
@@ -44,6 +47,13 @@ const ContentEditor = ({ item, type, onClose, onSave }) => {
     { value: 'technical', label: 'Technical' }
   ];
 
+  const priorityOptions = [
+    { value: 'low', label: 'Low' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'high', label: 'High' },
+    { value: 'urgent', label: 'Urgent' }
+  ];
+
   const handleInputChange = (field, value) => {
     setFormData(prev => ({
       ...prev,
@@ -51,8 +61,29 @@ const ContentEditor = ({ item, type, onClose, onSave }) => {
     }));
   };
 
-  const handleSave = () => {
-    onSave(formData);
+  const handleSave = async () => {
+    // Basic validation
+    if (!formData.title.trim()) {
+      alert('Please enter a title');
+      return;
+    }
+    
+    if (!formData.content.trim()) {
+      alert('Please enter content');
+      return;
+    }
+    
+    if (formData.status === 'scheduled' && !formData.scheduledDate) {
+      alert('Please select a scheduled date');
+      return;
+    }
+    
+    setIsSaving(true);
+    try {
+      await onSave(formData);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const insertFormatting = (format) => {
@@ -111,7 +142,7 @@ const ContentEditor = ({ item, type, onClose, onSave }) => {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-modal flex items-center justify-center p-4">
-      <div className="bg-card border border-border rounded-lg w-full max-w-6xl max-h-[90vh] flex flex-col">
+      <div className="bg-card border border-border rounded-lg w-full max-w-6xl max-h-[95vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-border">
           <h2 className="text-xl font-semibold text-foreground">{getEditorTitle()}</h2>
@@ -127,8 +158,8 @@ const ContentEditor = ({ item, type, onClose, onSave }) => {
             <Button variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button onClick={handleSave}>
-              Save {type === 'announcement' ? 'Announcement' : type === 'documentation' ? 'Article' : 'Page'}
+            <Button onClick={handleSave} disabled={isSaving}>
+              {isSaving ? 'Saving...' : `Save ${type === 'announcement' ? 'Announcement' : type === 'documentation' ? 'Article' : 'Page'}`}
             </Button>
           </div>
         </div>
@@ -216,13 +247,14 @@ const ContentEditor = ({ item, type, onClose, onSave }) => {
                 </div>
 
                 {/* Text Editor */}
-                <div className="flex-1 p-6">
+                <div className="flex-1 p-6 min-h-[500px]">
                   <textarea
                     ref={textareaRef}
                     value={formData.content}
                     onChange={(e) => handleInputChange('content', e.target.value)}
                     placeholder="Start writing your content..."
-                    className="w-full h-full resize-none border-0 outline-none bg-transparent text-foreground placeholder-muted-foreground"
+                    className="w-full h-full min-h-[450px] resize-none border-0 outline-none bg-transparent text-foreground placeholder-muted-foreground text-sm leading-relaxed"
+                    style={{ minHeight: '450px' }}
                   />
                 </div>
               </div>
@@ -264,6 +296,15 @@ const ContentEditor = ({ item, type, onClose, onSave }) => {
                   />
                 )}
 
+                {type === 'announcement' && (
+                  <Select
+                    label="Priority"
+                    options={priorityOptions}
+                    value={formData.priority}
+                    onChange={(value) => handleInputChange('priority', value)}
+                  />
+                )}
+
                 {type === 'documentation' && (
                   <Select
                     label="Category"
@@ -295,13 +336,77 @@ const ContentEditor = ({ item, type, onClose, onSave }) => {
               )}
 
               <div>
-                <Input
-                  label="Tags"
-                  value={formData.tags.join(', ')}
-                  onChange={(e) => handleInputChange('tags', e.target.value.split(', ').filter(Boolean))}
-                  placeholder="Enter tags separated by commas"
-                  description="Tags help users find your content"
-                />
+                <label className="block text-sm font-medium text-foreground mb-2">
+                  Tags
+                </label>
+                <div className="space-y-2">
+                  <Input
+                    value={tagInput}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setTagInput(value);
+                      
+                      // If user types a comma, add the tag before the comma
+                      if (value.endsWith(',')) {
+                        const newTag = value.slice(0, -1).trim();
+                        if (newTag && !formData.tags.includes(newTag)) {
+                          handleInputChange('tags', [...formData.tags, newTag]);
+                          setTagInput('');
+                        } else {
+                          setTagInput('');
+                        }
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      // Allow Enter to add a tag
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const newTag = tagInput.trim();
+                        if (newTag && !formData.tags.includes(newTag)) {
+                          handleInputChange('tags', [...formData.tags, newTag]);
+                          setTagInput('');
+                        }
+                      }
+                    }}
+                    onBlur={() => {
+                      // Add tag when input loses focus
+                      const newTag = tagInput.trim();
+                      if (newTag && !formData.tags.includes(newTag)) {
+                        handleInputChange('tags', [...formData.tags, newTag]);
+                        setTagInput('');
+                      } else {
+                        setTagInput('');
+                      }
+                    }}
+                    placeholder="Type a tag and press Enter or comma"
+                    description="Tags help users find your content"
+                  />
+                  {formData.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {formData.tags.map((tag, index) => (
+                        <span
+                          key={index}
+                          className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary"
+                        >
+                          {tag}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newTags = formData.tags.filter((_, i) => i !== index);
+                              handleInputChange('tags', newTags);
+                            }}
+                            className="ml-1.5 hover:text-destructive transition-colors"
+                          >
+                            <Icon name="X" size={12} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Type a tag and press Enter or comma to add it. Click the X on a tag to remove it.
+                </p>
               </div>
             </div>
           )}
@@ -339,7 +444,7 @@ const ContentEditor = ({ item, type, onClose, onSave }) => {
                     {formData.seoTitle || formData.title || 'Page Title'}
                   </div>
                   <div className="text-sm text-success">
-                    https://spacio.com/{type}/{formData.title.toLowerCase().replace(/\s+/g, '-')}
+                    https://spacel.com/{type}/{formData.title.toLowerCase().replace(/\s+/g, '-')}
                   </div>
                   <div className="text-sm text-muted-foreground">
                     {formData.seoDescription || formData.content.substring(0, 160) + '...'}

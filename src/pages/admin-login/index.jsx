@@ -41,11 +41,11 @@ const AdminLogin = () => {
             {/* Copyright */}
             <div className="text-center mt-8 pt-6 border-t border-border">
               <p className="text-xs text-muted-foreground">
-                © {new Date().getFullYear()} SPACIO. All rights reserved. | 
+                © {new Date().getFullYear()} SPACEL. All rights reserved. | 
                 <span className="ml-1">Admin Portal v2.1.0</span>
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                For technical support, contact: admin-support@spacio.com
+                For technical support, contact: admin-support@spacel.com
               </p>
             </div>
           </div>

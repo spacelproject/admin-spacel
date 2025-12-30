@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import Input from '../../../components/ui/Input';
 import ContentEditor from './ContentEditor';
 import ContentDetailsModal from './ContentDetailsModal';
 import ActionDropdown from './ActionDropdown';
+import useLegalPages from '../../../hooks/useLegalPages';
 
 const LegalPagesTab = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -12,96 +13,34 @@ const LegalPagesTab = () => {
   const [editingItem, setEditingItem] = useState(null);
   const [detailsModal, setDetailsModal] = useState({ isOpen: false, item: null });
 
-  const legalPages = [
-    {
-      id: 1,
-      title: 'Terms of Service',
-      slug: 'terms-of-service',
-      status: 'published',
-      lastUpdated: '2025-01-10T10:00:00Z',
-      author: 'Legal Team',
-      version: '3.2',
-      effectiveDate: '2025-01-01T00:00:00Z',
-      content: `These Terms of Service govern your use of the SPACIO platform and services.\n\nBy accessing or using our platform, you agree to be bound by these terms.\n\nKey sections include:\n- User responsibilities\n- Platform usage guidelines\n- Payment terms\n- Liability limitations\n- Dispute resolution procedures`
-    },
-    {
-      id: 2,
-      title: 'Privacy Policy',
-      slug: 'privacy-policy',
-      status: 'published',
-      lastUpdated: '2025-01-08T14:30:00Z',
-      author: 'Legal Team',
-      version: '2.8',
-      effectiveDate: '2025-01-01T00:00:00Z',
-      content: `This Privacy Policy describes how SPACIO collects, uses, and protects your personal information.\n\nWe are committed to protecting your privacy and ensuring transparency in our data practices.\n\nCovered topics:\n- Information we collect\n- How we use your data\n- Data sharing practices\n- Your privacy rights\n- Security measures`
-    },
-    {
-      id: 3,
-      title: 'Cookie Policy',
-      slug: 'cookie-policy',
-      status: 'published',
-      lastUpdated: '2025-01-05T09:15:00Z',
-      author: 'Legal Team',
-      version: '1.5',
-      effectiveDate: '2025-01-01T00:00:00Z',
-      content: `This Cookie Policy explains how SPACIO uses cookies and similar technologies.\n\nCookies help us provide you with a better user experience and improve our services.\n\nTypes of cookies we use:\n- Essential cookies\n- Performance cookies\n- Functionality cookies\n- Marketing cookies`
-    },
-    {
-      id: 4,
-      title: 'Host Agreement',
-      slug: 'host-agreement',
-      status: 'draft',
-      lastUpdated: '2025-01-15T11:45:00Z',
-      author: 'Legal Team',
-      version: '4.0',
-      effectiveDate: null,
-      content: `The Host Agreement outlines the terms and conditions for listing spaces on SPACIO.\n\nThis agreement covers:\n- Host responsibilities\n- Listing requirements\n- Commission structure\n- Cancellation policies\n- Insurance and liability\n- Quality standards`
-    },
-    {
-      id: 5,
-      title: 'Guest Terms',
-      slug: 'guest-terms',
-      status: 'published',
-      lastUpdated: '2025-01-12T16:20:00Z',
-      author: 'Legal Team',
-      version: '2.1',
-      effectiveDate: '2025-01-01T00:00:00Z',
-      content: `Guest Terms define the rules and expectations for booking and using spaces through SPACIO.\n\nImportant guidelines:\n- Booking procedures\n- Payment obligations\n- Cancellation rights\n- Property care requirements\n- Dispute resolution`
-    },
-    {
-      id: 6,
-      title: 'Community Standards',
-      slug: 'community-standards',
-      status: 'published',
-      lastUpdated: '2025-01-14T13:10:00Z',
-      author: 'Policy Team',
-      version: '1.3',
-      effectiveDate: '2025-01-01T00:00:00Z',
-      content: `Our Community Standards promote a safe, respectful, and inclusive environment for all SPACIO users.\n\nCore principles:\n- Respect and inclusivity\n- Safety and security\n- Honest communication\n- Property respect\n- Fair treatment`
-    },
-    {
-      id: 7,
-      title: 'Refund Policy',
-      slug: 'refund-policy',
-      status: 'review',
-      lastUpdated: '2025-01-16T08:30:00Z',
-      author: 'Legal Team',
-      version: '2.5',
-      effectiveDate: null,
-      content: `This Refund Policy outlines the conditions and procedures for booking refunds on SPACIO.\n\nRefund categories:\n- Full refunds\n- Partial refunds\n- No refund situations\n- Processing timeframes\n- Dispute procedures`
-    },
-    {
-      id: 8,
-      title: 'Intellectual Property Policy',
-      slug: 'intellectual-property',
-      status: 'published',
-      lastUpdated: '2025-01-09T12:00:00Z',
-      author: 'Legal Team',
-      version: '1.8',
-      effectiveDate: '2025-01-01T00:00:00Z',
-      content: `Our Intellectual Property Policy protects the rights of content creators and platform users.\n\nKey areas:\n- Copyright protection\n- Trademark usage\n- User-generated content\n- DMCA procedures\n- Infringement reporting`
-    }
-  ];
+  // Use real data from database
+  const {
+    legalPages: legalPagesData,
+    loading,
+    error,
+    createLegalPage,
+    updateLegalPage,
+    deleteLegalPage,
+    publishLegalPage
+  } = useLegalPages();
+
+  // Transform legal pages data to match component expectations
+  const legalPages = useMemo(() => {
+    if (!legalPagesData || legalPagesData.length === 0) return [];
+    
+    return legalPagesData.map(page => ({
+      id: page.id,
+      title: page.title,
+      slug: page.slug || page.title.toLowerCase().replace(/\s+/g, '-'),
+      status: page.status,
+      lastUpdated: page.lastUpdated || page.updatedAt,
+      author: page.author || 'Legal Team',
+      version: page.version || '1.0',
+      effectiveDate: page.effectiveDate || page.updatedAt,
+      content: page.content,
+      pageType: page.pageType || 'legal'
+    }));
+  }, [legalPagesData]);
 
   const filteredPages = legalPages?.filter(page => 
     page?.title?.toLowerCase()?.includes(searchTerm?.toLowerCase()) ||
@@ -136,17 +75,29 @@ const LegalPagesTab = () => {
     setShowEditor(true);
   };
 
-  const handlePublish = (item) => {
-    console.log('Publishing legal page:', item?.id);
+  const handlePublish = async (item) => {
+    try {
+      await publishLegalPage(item.id);
+    } catch (error) {
+      console.error('Error publishing legal page:', error);
+    }
   };
 
-  const handleArchive = (item) => {
-    console.log('Archiving legal page:', item?.id);
+  const handleArchive = async (item) => {
+    try {
+      await updateLegalPage(item.id, { status: 'archived' });
+    } catch (error) {
+      console.error('Error archiving legal page:', error);
+    }
   };
 
-  const handleDelete = (item) => {
+  const handleDelete = async (item) => {
     if (window.confirm(`Are you sure you want to delete "${item?.title}"?`)) {
-      console.log('Deleting legal page:', item?.id);
+      try {
+        await deleteLegalPage(item.id);
+      } catch (error) {
+        console.error('Error deleting legal page:', error);
+      }
     }
   };
 
@@ -176,6 +127,13 @@ const LegalPagesTab = () => {
 
   const formatDate = (dateString) => {
     if (!dateString) return '-';
+    if (dateString instanceof Date) {
+      return dateString.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+      });
+    }
     return new Date(dateString)?.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
@@ -183,15 +141,104 @@ const LegalPagesTab = () => {
     });
   };
 
+  // Show loading state
+  if (loading) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <div className="h-6 w-48 bg-muted animate-pulse rounded mb-2" />
+            <div className="h-4 w-64 bg-muted animate-pulse rounded" />
+          </div>
+          <div className="h-10 w-40 bg-muted animate-pulse rounded" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="bg-card border border-border rounded-lg p-6">
+              <div className="h-6 w-32 bg-muted animate-pulse rounded mb-4" />
+              <div className="space-y-2">
+                <div className="h-4 w-full bg-muted animate-pulse rounded" />
+                <div className="h-4 w-3/4 bg-muted animate-pulse rounded" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state
+  if (error) {
+    return (
+      <div className="p-6">
+        <div className="text-center py-12">
+          <Icon name="AlertCircle" size={48} className="text-error mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-foreground mb-2">Error Loading Legal Pages</h3>
+          <p className="text-muted-foreground mb-4">{error}</p>
+          <Button onClick={() => window.location.reload()}>
+            Try Again
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (showEditor) {
     return (
       <ContentEditor
         item={editingItem}
         type="legal"
-        onClose={() => setShowEditor(false)}
-        onSave={(data) => {
-          console.log('Saving legal page:', data);
+        onClose={() => {
           setShowEditor(false);
+          setEditingItem(null);
+        }}
+        onSave={async (data) => {
+          try {
+            console.log('Saving legal page:', data);
+            
+            // Generate slug from title if not provided
+            const slug = data.slug || data.title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+            
+            if (editingItem) {
+              // Update existing legal page
+              await updateLegalPage(editingItem.id, {
+                title: data.title,
+                content: data.content,
+                status: data.status,
+                slug: slug,
+                version: editingItem.version || '1.0',
+                effectiveDate: data.effectiveDate ? new Date(data.effectiveDate).toISOString() : null,
+                pageType: editingItem.pageType || 'legal',
+                metadata: {
+                  seoTitle: data.seoTitle,
+                  seoDescription: data.seoDescription,
+                  enableNotifications: data.enableNotifications
+                }
+              });
+            } else {
+              // Create new legal page
+              await createLegalPage({
+                title: data.title,
+                content: data.content,
+                status: data.status,
+                slug: slug,
+                version: '1.0',
+                effectiveDate: data.effectiveDate ? new Date(data.effectiveDate).toISOString() : null,
+                pageType: 'legal',
+                metadata: {
+                  seoTitle: data.seoTitle,
+                  seoDescription: data.seoDescription,
+                  enableNotifications: data.enableNotifications
+                }
+              });
+            }
+            
+            setShowEditor(false);
+            setEditingItem(null);
+          } catch (error) {
+            console.error('Error saving legal page:', error);
+            alert(`Error saving legal page: ${error.message || 'Unknown error'}`);
+          }
         }}
       />
     );

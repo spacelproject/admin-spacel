@@ -1,18 +1,85 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Icon from '../AppIcon';
 import Image from '../AppImage';
+import { useAuth } from '../../contexts/AuthContext';
+import { supabase } from '../../lib/supabase';
+import ProfileSettingsModal from './ProfileSettingsModal';
+import PreferencesModal from './PreferencesModal';
 
 const UserProfileDropdown = () => {
   const [isOpen, setIsOpen] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showPreferencesModal, setShowPreferencesModal] = useState(false);
+  const [userProfile, setUserProfile] = useState(null);
   const dropdownRef = useRef(null);
+  const { user, signOut } = useAuth();
+  const navigate = useNavigate();
 
-  // Mock user data - replace with actual user context
-  const user = {
-    name: 'Admin User',
-    email: 'admin@spacio.com',
-    role: 'Super Administrator',
-    avatar: '/assets/images/admin-avatar.jpg'
-  };
+  // Fetch user profile data
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      if (!user?.id) return;
+
+      try {
+        const { data: profile, error } = await supabase
+          .from('profiles')
+          .select('first_name, last_name, email, avatar_url')
+          .eq('id', user.id)
+          .single();
+
+        if (error) {
+          console.warn('Error fetching profile:', error);
+          setUserProfile(null);
+          return;
+        }
+
+        setUserProfile(profile);
+      } catch (error) {
+        console.warn('Error fetching profile:', error);
+        setUserProfile(null);
+      }
+    };
+
+    if (user?.id) {
+      fetchUserProfile();
+    }
+  }, [user?.id]);
+
+  // Listen for profile updates
+  useEffect(() => {
+    const handleProfileUpdate = async () => {
+      if (!user?.id) return;
+
+      try {
+        const { data: profile, error } = await supabase
+          .from('profiles')
+          .select('first_name, last_name, email, avatar_url')
+          .eq('id', user.id)
+          .single();
+
+        if (!error && profile) {
+          setUserProfile(profile);
+        }
+      } catch (error) {
+        console.warn('Error refreshing profile:', error);
+      }
+    };
+
+    window.addEventListener('profileUpdated', handleProfileUpdate);
+    return () => window.removeEventListener('profileUpdated', handleProfileUpdate);
+  }, [user?.id]);
+
+  // Get user display info from profile or auth context
+  const userDisplayName = userProfile?.first_name && userProfile?.last_name
+    ? `${userProfile.first_name} ${userProfile.last_name}`.trim()
+    : userProfile?.first_name || user?.email?.split('@')[0] || 'User';
+  const userEmail = userProfile?.email || user?.email || '';
+  const userRole = user?.role === 'super_admin' ? 'Super Administrator' :
+                   user?.role === 'admin' ? 'Administrator' :
+                   user?.role === 'support' ? 'Support Agent' :
+                   'User';
+  const userAvatar = userProfile?.avatar_url || user?.avatar_url || '/assets/images/no_image.png';
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -25,16 +92,34 @@ const UserProfileDropdown = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleLogout = () => {
-    // Implement logout logic
-    console.log('Logging out...');
-    setIsOpen(false);
+  const handleLogout = async () => {
+    try {
+      console.log('🚪 Logging out...');
+      setIsOpen(false);
+      const result = await signOut();
+      
+      if (result.success) {
+        console.log('✅ Logged out successfully');
+        // Navigate to login page
+        navigate('/admin-login');
+      } else {
+        console.error('❌ Logout failed:', result.error);
+      }
+    } catch (error) {
+      console.error('❌ Error during logout:', error);
+      // Even if there's an error, try to navigate to login
+      navigate('/admin-login');
+    }
   };
 
   const handleProfile = () => {
-    // Navigate to profile page
-    console.log('Navigate to profile...');
     setIsOpen(false);
+    setShowProfileModal(true);
+  };
+
+  const handlePreferences = () => {
+    setIsOpen(false);
+    setShowPreferencesModal(true);
   };
 
   const dropdownItems = [
@@ -48,13 +133,7 @@ const UserProfileDropdown = () => {
       id: 'preferences',
       label: 'Preferences',
       icon: 'Settings',
-      onClick: () => setIsOpen(false)
-    },
-    {
-      id: 'help',
-      label: 'Help & Support',
-      icon: 'HelpCircle',
-      onClick: () => setIsOpen(false)
+      onClick: handlePreferences
     },
     {
       id: 'divider',
@@ -69,28 +148,20 @@ const UserProfileDropdown = () => {
     }
   ];
 
+  // Don't render if no user
+  if (!user) return null;
+
   return (
     <div className="relative" ref={dropdownRef}>
       {/* Profile Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center space-x-3 p-2 rounded-md hover:bg-muted transition-smooth"
+        className="flex items-center justify-center p-0 rounded-full hover:ring-2 hover:ring-gray-300 transition-smooth focus:outline-none focus:ring-2 focus:ring-blue-500"
       >
-        <div className="flex-shrink-0">
-          <Image
-            src={user.avatar}
-            alt={user.name}
-            className="w-8 h-8 rounded-full object-cover"
-          />
-        </div>
-        <div className="hidden md:block text-left">
-          <p className="text-sm font-medium text-foreground">{user.name}</p>
-          <p className="text-xs text-muted-foreground">{user.role}</p>
-        </div>
-        <Icon 
-          name={isOpen ? "ChevronUp" : "ChevronDown"} 
-          size={16} 
-          className="text-muted-foreground hidden md:block"
+        <Image
+          src={userAvatar}
+          alt={userDisplayName}
+          className="w-10 h-10 rounded-full object-cover"
         />
       </button>
 
@@ -101,19 +172,19 @@ const UserProfileDropdown = () => {
           <div className="px-4 py-3 border-b border-border">
             <div className="flex items-center space-x-3">
               <Image
-                src={user.avatar}
-                alt={user.name}
+                src={userAvatar}
+                alt={userDisplayName}
                 className="w-10 h-10 rounded-full object-cover"
               />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-popover-foreground truncate">
-                  {user.name}
+                  {userDisplayName}
                 </p>
                 <p className="text-xs text-muted-foreground truncate">
-                  {user.email}
+                  {userEmail}
                 </p>
                 <p className="text-xs text-accent font-medium">
-                  {user.role}
+                  {userRole}
                 </p>
               </div>
             </div>
@@ -134,8 +205,7 @@ const UserProfileDropdown = () => {
                   onClick={item.onClick}
                   className={`
                     w-full flex items-center space-x-3 px-4 py-2 text-left transition-smooth
-                    ${item.variant === 'danger' ?'text-destructive hover:bg-destructive/10' :'text-popover-foreground hover:bg-muted'
-                    }
+                    ${item.variant === 'danger' ? 'text-destructive hover:bg-destructive/10' : 'text-popover-foreground hover:bg-muted'}
                   `}
                 >
                   <Icon 
@@ -150,6 +220,16 @@ const UserProfileDropdown = () => {
           </div>
         </div>
       )}
+
+      {/* Modals */}
+      <ProfileSettingsModal
+        isOpen={showProfileModal}
+        onClose={() => setShowProfileModal(false)}
+      />
+      <PreferencesModal
+        isOpen={showPreferencesModal}
+        onClose={() => setShowPreferencesModal(false)}
+      />
     </div>
   );
 };

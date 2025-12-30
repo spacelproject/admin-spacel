@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import AdminSidebar from '../../components/ui/AdminSidebar';
 import UserProfileDropdown from '../../components/ui/UserProfileDropdown';
+import NotificationBell from '../../components/NotificationBell';
 import BreadcrumbNavigation from '../../components/ui/BreadcrumbNavigation';
 import MetricsOverview from './components/MetricsOverview';
 import DateRangeSelector from './components/DateRangeSelector';
@@ -10,6 +11,9 @@ import ReportGenerator from './components/ReportGenerator';
 import PerformanceIndicators from './components/PerformanceIndicators';
 import DataExportPanel from './components/DataExportPanel';
 import Button from '../../components/ui/Button';
+import Icon from '../../components/AppIcon';
+import { useAnalyticsData } from '../../hooks/useAnalyticsData';
+import { useDataExport } from '../../hooks/useDataExport';
 
 
 const AnalyticsReports = () => {
@@ -25,169 +29,50 @@ const AnalyticsReports = () => {
     bookingStatus: 'all'
   });
   const [widgets, setWidgets] = useState([]);
+  const [lastUpdated, setLastUpdated] = useState(new Date());
+  
+  // Use real-time analytics data
+  const { data: analyticsData, refetch } = useAnalyticsData(selectedRange, filters, customDateRange);
+  const { exportData: exportDataHook } = useDataExport();
 
-  // Mock data for metrics overview
-  const metricsData = [
-    {
-      id: 1,
-      type: 'users',
-      label: 'Total Users',
-      value: '12,847',
-      change: 8.2,
-      period: 'vs last month'
-    },
-    {
-      id: 2,
-      type: 'bookings',
-      label: 'Total Bookings',
-      value: '3,429',
-      change: 12.5,
-      period: 'vs last month'
-    },
-    {
-      id: 3,
-      type: 'revenue',
-      label: 'Total Revenue',
-      value: '$284,592',
-      change: -2.1,
-      period: 'vs last month'
-    },
-    {
-      id: 4,
-      type: 'spaces',
-      label: 'Active Spaces',
-      value: '1,847',
-      change: 5.7,
-      period: 'vs last month'
-    }
-  ];
-
-  // Mock data for performance indicators
-  const performanceIndicators = [
-    {
-      id: 1,
-      name: 'Conversion Rate',
-      value: '3.2%',
-      unit: '',
-      target: '4.0%',
-      progress: 80,
-      status: 'good',
-      change: 0.3
-    },
-    {
-      id: 2,
-      name: 'Avg Booking Value',
-      value: '$127',
-      unit: 'USD',
-      target: '$150',
-      progress: 85,
-      status: 'good',
-      change: 5.2
-    },
-    {
-      id: 3,
-      name: 'User Retention',
-      value: '68%',
-      unit: '',
-      target: '75%',
-      progress: 91,
-      status: 'excellent',
-      change: 2.1
-    },
-    {
-      id: 4,
-      name: 'Space Utilization',
-      value: '74%',
-      unit: '',
-      target: '80%',
-      progress: 93,
-      status: 'excellent',
-      change: 1.8
-    },
-    {
-      id: 5,
-      name: 'Customer Satisfaction',
-      value: '4.3',
-      unit: '/5.0',
-      target: '4.5',
-      progress: 86,
-      status: 'good',
-      change: 0.1
-    },
-    {
-      id: 6,
-      name: 'Response Time',
-      value: '2.4h',
-      unit: 'avg',
-      target: '2.0h',
-      progress: 60,
-      status: 'average',
-      change: -0.2
-    }
-  ];
-
-  // Mock chart data
-  const chartData = {
-    userGrowth: [
-      { name: 'Jan', value: 8400 },
-      { name: 'Feb', value: 9200 },
-      { name: 'Mar', value: 10100 },
-      { name: 'Apr', value: 11300 },
-      { name: 'May', value: 12100 },
-      { name: 'Jun', value: 12847 }
-    ],
-    bookingTrends: [
-      { name: 'Mon', value: 420 },
-      { name: 'Tue', value: 380 },
-      { name: 'Wed', value: 510 },
-      { name: 'Thu', value: 490 },
-      { name: 'Fri', value: 620 },
-      { name: 'Sat', value: 580 },
-      { name: 'Sun', value: 340 }
-    ],
-    revenueAnalytics: [
-      { name: 'Office Spaces', value: 45 },
-      { name: 'Meeting Rooms', value: 30 },
-      { name: 'Coworking', value: 15 },
-      { name: 'Event Venues', value: 10 }
-    ],
-    spacePerformance: [
-      { name: 'Q1', value: 65 },
-      { name: 'Q2', value: 72 },
-      { name: 'Q3', value: 68 },
-      { name: 'Q4', value: 74 }
-    ]
-  };
+  // Real-time updates are handled by Supabase subscriptions
+  // Removed auto-refresh interval to prevent unwanted reloads
 
   useEffect(() => {
-    // Initialize default widgets
-    setWidgets([
-      {
-        id: 1,
-        title: 'User Growth Trends',
-        type: 'line',
-        data: chartData.userGrowth
-      },
-      {
-        id: 2,
-        title: 'Weekly Booking Trends',
-        type: 'bar',
-        data: chartData.bookingTrends
-      },
-      {
-        id: 3,
-        title: 'Revenue by Category',
-        type: 'pie',
-        data: chartData.revenueAnalytics
-      },
-      {
-        id: 4,
-        title: 'Space Utilization',
-        type: 'bar',
-        data: chartData.spacePerformance
-      }
-    ]);
+    document.title = 'Analytics & Reports - SPACEL Admin';
   }, []);
+
+  useEffect(() => {
+    // Initialize default widgets with real-time data
+    if (analyticsData.chartData && Object.keys(analyticsData.chartData).length > 0) {
+      setWidgets([
+        {
+          id: 1,
+          title: 'User Growth Trends',
+          type: 'line',
+          data: analyticsData.chartData.userGrowth || []
+        },
+        {
+          id: 2,
+          title: 'Weekly Booking Trends',
+          type: 'bar',
+          data: analyticsData.chartData.bookingTrends || []
+        },
+        {
+          id: 3,
+          title: 'Revenue by Category',
+          type: 'pie',
+          data: analyticsData.chartData.revenueByCategory || []
+        },
+        {
+          id: 4,
+          title: 'Space Performance',
+          type: 'line',
+          data: analyticsData.chartData.spacePerformance || []
+        }
+      ]);
+    }
+  }, [analyticsData.chartData]);
 
   const handleCustomDateChange = (field, value) => {
     setCustomDateRange(prev => ({
@@ -212,33 +97,62 @@ const AnalyticsReports = () => {
     });
   };
 
-  const handleRemoveWidget = (widgetId) => {
-    setWidgets(prev => prev.filter(widget => widget.id !== widgetId));
+
+
+  const handleGenerateReport = async (reportConfig) => {
+    try {
+      // Map template to columns based on template type
+      const templateColumnMap = {
+        'financial': ['revenue-data', 'analytics-data', 'performance-metrics'],
+        'user-activity': ['user-data', 'analytics-data'],
+        'space-performance': ['space-data', 'booking-data', 'performance-metrics'],
+        'booking-trends': ['booking-data', 'analytics-data', 'performance-metrics'],
+        'custom': reportConfig.metrics?.length > 0 
+          ? reportConfig.metrics.map(metric => {
+              // Map metric IDs to column names
+              const metricMap = {
+                'user-growth': 'user-data',
+                'booking-volume': 'booking-data',
+                'revenue-trends': 'revenue-data',
+                'space-utilization': 'space-data',
+                'conversion-rates': 'performance-metrics',
+                'customer-satisfaction': 'performance-metrics'
+              };
+              return metricMap[metric] || 'analytics-data';
+            })
+          : ['analytics-data', 'performance-metrics']
+      };
+
+      const columns = templateColumnMap[reportConfig.template] || ['analytics-data', 'performance-metrics'];
+      
+      // Prepare export config based on report template
+      const exportConfig = {
+        format: reportConfig.format || 'pdf',
+        columns: [...new Set(columns)], // Remove duplicates
+        dateRange: selectedRange,
+        customDateRange: selectedRange === 'custom' ? customDateRange : null
+      };
+      
+      const result = await exportDataHook(exportConfig);
+      
+      if (result?.success) {
+        console.log('✅ Report generated successfully:', result.message);
+        // Could add toast notification here
+      } else {
+        console.warn('⚠️ Report generation completed with warnings');
+      }
+    } catch (error) {
+      console.error('❌ Error generating report:', error);
+      // Could add error toast notification here
+    }
   };
 
-  const handleDrillDown = (widgetId) => {
-    console.log('Drill down for widget:', widgetId);
-    // Implement drill-down functionality
-  };
-
-  const handleAddWidget = () => {
-    const newWidget = {
-      id: Date.now(),
-      title: 'New Chart Widget',
-      type: 'line',
-      data: chartData.userGrowth
-    };
-    setWidgets(prev => [...prev, newWidget]);
-  };
-
-  const handleGenerateReport = (reportConfig) => {
-    console.log('Generating report with config:', reportConfig);
-    // Implement report generation logic
-  };
-
-  const handleExportData = (exportConfig) => {
-    console.log('Exporting data with config:', exportConfig);
-    // Implement data export logic
+  const handleExportData = async (exportConfig) => {
+    try {
+      await exportDataHook(exportConfig);
+    } catch (error) {
+      console.error('Error exporting data:', error);
+    }
   };
 
   return (
@@ -252,8 +166,25 @@ const AnalyticsReports = () => {
             <h1 className="text-xl font-semibold text-header-foreground">
               Analytics & Reports
             </h1>
+            {!analyticsData.loading && (
+              <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+                <Icon name="RefreshCw" size={14} />
+                <span>Last updated: {lastUpdated.toLocaleTimeString()}</span>
+              </div>
+            )}
           </div>
-          <UserProfileDropdown />
+          <div className="flex items-center space-x-4">
+            {!analyticsData.loading && (
+              <div className="flex items-center space-x-2 text-xs text-success">
+                <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
+                <span>Live data</span>
+              </div>
+            )}
+            <div className="flex items-center space-x-4">
+              <NotificationBell />
+              <UserProfileDropdown />
+            </div>
+          </div>
         </header>
 
         {/* Main Content */}
@@ -268,52 +199,124 @@ const AnalyticsReports = () => {
             onCustomDateChange={handleCustomDateChange}
           />
 
-          {/* Metrics Overview */}
-          <MetricsOverview metrics={metricsData} />
-
-          {/* Filter Controls */}
-          <FilterControls
-            filters={filters}
-            onFilterChange={handleFilterChange}
-            onClearFilters={handleClearFilters}
-          />
-
-          {/* Performance Indicators */}
-          <PerformanceIndicators indicators={performanceIndicators} />
-
-          {/* Chart Widgets */}
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-foreground">Dashboard Widgets</h2>
-              <Button
-                variant="outline"
-                onClick={handleAddWidget}
-                iconName="Plus"
-                iconPosition="left"
-              >
-                Add Widget
+          {/* Loading State */}
+          {analyticsData.loading ? (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="bg-card border border-border rounded-lg p-6 card-shadow">
+                    <div className="animate-pulse">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="w-12 h-12 bg-muted rounded-lg" />
+                        <div className="w-16 h-4 bg-muted rounded" />
+                      </div>
+                      <div className="space-y-2">
+                        <div className="h-8 bg-muted rounded w-20" />
+                        <div className="h-4 bg-muted rounded w-24" />
+                        <div className="h-3 bg-muted rounded w-16" />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="bg-card border border-border rounded-lg p-6">
+                <div className="animate-pulse">
+                  <div className="h-6 bg-muted rounded w-48 mb-6" />
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {Array.from({ length: 6 }).map((_, i) => (
+                      <div key={i} className="border border-border rounded-lg p-4">
+                        <div className="space-y-3">
+                          <div className="h-4 bg-muted rounded w-24" />
+                          <div className="h-6 bg-muted rounded w-16" />
+                          <div className="h-2 bg-muted rounded w-full" />
+                          <div className="h-3 bg-muted rounded w-20" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : analyticsData.error ? (
+            <div className="bg-card border border-border rounded-lg p-6 text-center">
+              <Icon name="AlertCircle" size={24} className="text-error mx-auto mb-2" />
+              <p className="text-error mb-2">Failed to load analytics data</p>
+              <p className="text-sm text-muted-foreground mb-4">{analyticsData.error}</p>
+              <Button onClick={refetch} variant="outline">
+                Retry
               </Button>
             </div>
-            
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {widgets.map((widget) => (
-                <ChartWidget
-                  key={widget.id}
-                  title={widget.title}
-                  type={widget.type}
-                  data={widget.data}
-                  onRemove={() => handleRemoveWidget(widget.id)}
-                  onDrillDown={() => handleDrillDown(widget.id)}
-                />
-              ))}
+          ) : (
+            <>
+              {/* Metrics Overview */}
+              <MetricsOverview metrics={analyticsData.metrics} />
+
+              {/* Filter Controls */}
+              <FilterControls
+                filters={filters}
+                onFilterChange={handleFilterChange}
+                onClearFilters={handleClearFilters}
+              />
+
+              {/* Performance Indicators */}
+              <PerformanceIndicators indicators={analyticsData.performanceIndicators} />
+            </>
+          )}
+
+          {/* Chart Widgets - Only show when data is loaded */}
+          {!analyticsData.loading && !analyticsData.error && (
+            <div className="mb-6">
+              <div className="mb-4">
+                <h2 className="text-lg font-semibold text-foreground">Dashboard Widgets</h2>
+              </div>
+              
+              <div className="space-y-6">
+                {/* First Row: User Growth Trends and Space Performance */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {widgets
+                    .filter(widget => widget.id === 1 || widget.id === 4)
+                    .sort((a, b) => a.id - b.id) // Sort to ensure User Growth (1) comes before Space Performance (4)
+                    .map((widget) => (
+                      <ChartWidget
+                        key={widget.id}
+                        title={widget.title}
+                        type={widget.type}
+                        data={widget.data}
+                      />
+                    ))}
+                </div>
+                
+                {/* Second Row: Weekly Booking Trends and Revenue by Category */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {widgets
+                    .filter(widget => widget.id === 2 || widget.id === 3)
+                    .sort((a, b) => a.id - b.id) // Sort to ensure Weekly Booking (2) comes before Revenue (3)
+                    .map((widget) => (
+                      <ChartWidget
+                        key={widget.id}
+                        title={widget.title}
+                        type={widget.type}
+                        data={widget.data}
+                      />
+                    ))}
+                </div>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Report Generator */}
-          <ReportGenerator onGenerateReport={handleGenerateReport} />
+          <ReportGenerator 
+            onGenerateReport={handleGenerateReport}
+            selectedDateRange={selectedRange}
+            customDateRange={customDateRange}
+          />
 
           {/* Data Export Panel */}
-          <DataExportPanel onExport={handleExportData} />
+          <DataExportPanel 
+            onExport={handleExportData} 
+            selectedDateRange={selectedRange}
+            customDateRange={customDateRange}
+          />
         </main>
       </div>
     </div>

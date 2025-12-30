@@ -5,44 +5,38 @@ const KPICard = ({ title, value, change, changeType, icon, color = 'primary' }) 
   const getColorClasses = () => {
     switch (color) {
       case 'success':
-        return 'text-success bg-success/10';
+        return 'bg-blue-50 text-blue-600';
       case 'warning':
-        return 'text-warning bg-warning/10';
+        return 'bg-blue-50 text-blue-600';
       case 'error':
-        return 'text-error bg-error/10';
+        return 'bg-blue-50 text-blue-600';
       default:
-        return 'text-primary bg-primary/10';
+        return 'bg-blue-50 text-blue-600';
     }
   };
 
   const getChangeColor = () => {
-    if (changeType === 'positive') return 'text-success';
-    if (changeType === 'negative') return 'text-error';
-    return 'text-muted-foreground';
+    if (changeType === 'positive') return 'text-green-600';
+    if (changeType === 'negative') return 'text-red-600';
+    return 'text-gray-500';
   };
 
   return (
-    <div className="bg-card border border-border rounded-lg p-6 card-shadow">
+    <div className="metric-card">
       <div className="flex items-center justify-between">
         <div className="flex-1">
-          <p className="text-sm font-medium text-muted-foreground mb-1">{title}</p>
-          <p className="text-2xl font-bold text-card-foreground">{value}</p>
+          <p className="text-xs font-medium text-gray-500 mb-2 tracking-wide uppercase">{title}</p>
+          <p className="text-xl font-bold text-gray-900 mb-2 tracking-tight">{value}</p>
           {change && (
-            <div className="flex items-center mt-2">
-              <Icon 
-                name={changeType === 'positive' ? 'TrendingUp' : changeType === 'negative' ? 'TrendingDown' : 'Minus'} 
-                size={16} 
-                className={`mr-1 ${getChangeColor()}`}
-              />
-              <span className={`text-sm font-medium ${getChangeColor()}`}>
+            <div className="flex items-center gap-1">
+              <span className={`text-xs font-semibold ${getChangeColor()}`}>
                 {change}
               </span>
-              <span className="text-sm text-muted-foreground ml-1">vs last month</span>
             </div>
           )}
         </div>
-        <div className={`p-3 rounded-lg ${getColorClasses()}`}>
-          <Icon name={icon} size={24} />
+        <div className={`icon-circle ${getColorClasses()}`}>
+          <Icon name={icon} size={18} />
         </div>
       </div>
     </div>

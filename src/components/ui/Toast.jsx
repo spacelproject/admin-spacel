@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useRef } from 'react';
 import Icon from '../AppIcon';
 import { cn } from '../../utils/cn';
 
@@ -46,11 +46,11 @@ const Toast = ({
     };
 
     const positionStyles = {
-      'top-right': 'fixed top-4 right-4 z-50',
-      'top-left': 'fixed top-4 left-4 z-50',
-      'bottom-right': 'fixed bottom-4 right-4 z-50',
-      'bottom-left': 'fixed bottom-4 left-4 z-50',
-      'top-center': 'fixed top-4 left-1/2 transform -translate-x-1/2 z-50'
+      'top-right': 'fixed top-4 right-4 z-toast',
+      'top-left': 'fixed top-4 left-4 z-toast',
+      'bottom-right': 'fixed bottom-4 right-4 z-toast',
+      'bottom-left': 'fixed bottom-4 left-4 z-toast',
+      'top-center': 'fixed top-4 left-1/2 transform -translate-x-1/2 z-toast'
     };
 
     const animationClass = isExiting 
@@ -97,9 +97,19 @@ const ToastContext = React.createContext();
 
 export const ToastProvider = ({ children }) => {
   const [toasts, setToasts] = useState([]);
+  // Use a ref to avoid collisions caused by React state batching (multiple calls in same tick)
+  const toastCounterRef = useRef(0);
 
   const showToast = (message, type = 'success', options = {}) => {
-    const id = Date.now();
+    // Date.now() can collide if multiple toasts are triggered in the same millisecond.
+    // Use a counter + time + random for stable uniqueness.
+    toastCounterRef.current += 1;
+    const nextCounter = toastCounterRef.current;
+    const randomPart =
+      typeof crypto !== 'undefined' && crypto?.randomUUID
+        ? crypto.randomUUID()
+        : Math.random().toString(36).slice(2);
+    const id = `${Date.now()}-${nextCounter}-${randomPart}`;
     const toast = {
       id,
       message,

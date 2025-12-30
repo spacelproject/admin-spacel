@@ -1,39 +1,37 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Input from '../../../components/ui/Input';
 import Button from '../../../components/ui/Button';
 import { Checkbox } from '../../../components/ui/Checkbox';
 import Select from '../../../components/ui/Select';
 import Icon from '../../../components/AppIcon';
+import LoadingSpinner from '../../../components/ui/LoadingSpinner';
+import ErrorState from '../../../components/ui/ErrorState';
+import usePlatformSettings from '../../../hooks/usePlatformSettings';
+import { useToast } from '../../../components/ui/Toast';
+import { logDebug } from '../../../utils/logger';
 
 const SecurityPoliciesTab = () => {
-  const [securitySettings, setSecuritySettings] = useState({
-    passwordMinLength: 8,
-    passwordRequireUppercase: true,
-    passwordRequireLowercase: true,
-    passwordRequireNumbers: true,
-    passwordRequireSymbols: true,
-    passwordExpiryDays: 90,
-    sessionTimeoutMinutes: 30,
-    maxLoginAttempts: 5,
-    lockoutDurationMinutes: 15,
-    twoFactorRequired: false,
-    twoFactorForAdmins: true,
-    emailVerificationRequired: true,
-    phoneVerificationRequired: false,
-    apiRateLimit: 1000,
-    apiRateLimitWindow: 60,
-    allowedIpAddresses: "",
-    blockedIpAddresses: "",
-    sslRequired: true,
-    cookieSecure: true,
-    cookieSameSite: "strict",
-    dataRetentionDays: 365,
-    auditLogRetentionDays: 730,
-    gdprCompliance: true,
-    ccpaCompliance: true
-  });
+  const { showToast } = useToast();
+  const {
+    settings: platformSettings,
+    loading,
+    saving,
+    error,
+    lastUpdated,
+    saveSettings: savePlatformSettings,
+    resetSettings: resetPlatformSettings,
+    refetch: refetchPlatformSettings,
+  } = usePlatformSettings('security');
 
-  const [isChanged, setIsChanged] = useState(false);
+  const [localSettings, setLocalSettings] = useState({});
+  const initialSettingsRef = useRef({});
+
+  useEffect(() => {
+    if (!loading) {
+      setLocalSettings(platformSettings);
+      initialSettingsRef.current = { ...platformSettings };
+    }
+  }, [loading, platformSettings]);
 
   const cookieSameSiteOptions = [
     { value: "strict", label: "Strict" },
@@ -42,52 +40,53 @@ const SecurityPoliciesTab = () => {
   ];
 
   const handleInputChange = (field, value) => {
-    setSecuritySettings(prev => ({
+    setLocalSettings(prev => ({
       ...prev,
       [field]: value
     }));
-    setIsChanged(true);
   };
 
-  const handleSave = () => {
-    console.log('Saving security settings:', securitySettings);
-    setIsChanged(false);
+  const isChanged = Object.keys(localSettings).some(
+    (key) => localSettings[key] !== initialSettingsRef.current[key]
+  );
+
+  const handleSave = async () => {
+    const changedKeys = Object.keys(localSettings).filter(
+      (key) => localSettings[key] !== initialSettingsRef.current[key]
+    );
+    
+    if (changedKeys.length === 0) {
+      showToast('No changes to save', 'info');
+      return;
+    }
+
+    logDebug('Saving security settings changes:', changedKeys);
+    const success = await savePlatformSettings(localSettings, changedKeys);
+    
+    if (success) {
+      initialSettingsRef.current = { ...localSettings };
+      refetchPlatformSettings();
+    }
   };
 
   const handleReset = () => {
-    setSecuritySettings({
-      passwordMinLength: 8,
-      passwordRequireUppercase: true,
-      passwordRequireLowercase: true,
-      passwordRequireNumbers: true,
-      passwordRequireSymbols: true,
-      passwordExpiryDays: 90,
-      sessionTimeoutMinutes: 30,
-      maxLoginAttempts: 5,
-      lockoutDurationMinutes: 15,
-      twoFactorRequired: false,
-      twoFactorForAdmins: true,
-      emailVerificationRequired: true,
-      phoneVerificationRequired: false,
-      apiRateLimit: 1000,
-      apiRateLimitWindow: 60,
-      allowedIpAddresses: "",
-      blockedIpAddresses: "",
-      sslRequired: true,
-      cookieSecure: true,
-      cookieSameSite: "strict",
-      dataRetentionDays: 365,
-      auditLogRetentionDays: 730,
-      gdprCompliance: true,
-      ccpaCompliance: true
-    });
-    setIsChanged(false);
+    setLocalSettings(initialSettingsRef.current);
+    showToast('Changes reset to last saved state', 'info');
   };
 
   const generateApiKey = () => {
     const apiKey = 'sk_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    showToast(`API Key generated: ${apiKey.substring(0, 20)}... (Check console for full key)`, 'info');
     console.log('Generated API Key:', apiKey);
   };
+
+  if (loading) {
+    return <LoadingSpinner text="Loading security settings..." />;
+  }
+
+  if (error) {
+    return <ErrorState error={error} onRetry={refetchPlatformSettings} />;
+  }
 
   return (
     <div className="space-y-8">
@@ -103,22 +102,24 @@ const SecurityPoliciesTab = () => {
             <Input
               label="Minimum Password Length"
               type="number"
-              value={securitySettings.passwordMinLength}
+              value={localSettings.passwordMinLength ?? 8}
               onChange={(e) => handleInputChange('passwordMinLength', parseInt(e.target.value))}
               description="Minimum number of characters required"
               min="6"
               max="32"
               required
+              disabled={saving}
             />
             
             <Input
               label="Password Expiry (Days)"
               type="number"
-              value={securitySettings.passwordExpiryDays}
+              value={localSettings.passwordExpiryDays ?? 90}
               onChange={(e) => handleInputChange('passwordExpiryDays', parseInt(e.target.value))}
               description="Days before password expires (0 = never)"
               min="0"
               max="365"
+              disabled={saving}
             />
           </div>
           
@@ -130,26 +131,30 @@ const SecurityPoliciesTab = () => {
               <div className="space-y-2">
                 <Checkbox
                   label="Require uppercase letters (A-Z)"
-                  checked={securitySettings.passwordRequireUppercase}
+                  checked={localSettings.passwordRequireUppercase ?? true}
                   onChange={(e) => handleInputChange('passwordRequireUppercase', e.target.checked)}
+                  disabled={saving}
                 />
                 
                 <Checkbox
                   label="Require lowercase letters (a-z)"
-                  checked={securitySettings.passwordRequireLowercase}
+                  checked={localSettings.passwordRequireLowercase ?? true}
                   onChange={(e) => handleInputChange('passwordRequireLowercase', e.target.checked)}
+                  disabled={saving}
                 />
                 
                 <Checkbox
                   label="Require numbers (0-9)"
-                  checked={securitySettings.passwordRequireNumbers}
+                  checked={localSettings.passwordRequireNumbers ?? true}
                   onChange={(e) => handleInputChange('passwordRequireNumbers', e.target.checked)}
+                  disabled={saving}
                 />
                 
                 <Checkbox
                   label="Require symbols (!@#$%)"
-                  checked={securitySettings.passwordRequireSymbols}
+                  checked={localSettings.passwordRequireSymbols ?? true}
                   onChange={(e) => handleInputChange('passwordRequireSymbols', e.target.checked)}
+                  disabled={saving}
                 />
               </div>
             </div>
@@ -168,43 +173,47 @@ const SecurityPoliciesTab = () => {
           <Input
             label="Session Timeout (Minutes)"
             type="number"
-            value={securitySettings.sessionTimeoutMinutes}
+            value={localSettings.sessionTimeoutMinutes ?? 30}
             onChange={(e) => handleInputChange('sessionTimeoutMinutes', parseInt(e.target.value))}
             description="Automatic logout after inactivity"
             min="5"
             max="480"
             required
+            disabled={saving}
           />
           
           <Input
             label="Max Login Attempts"
             type="number"
-            value={securitySettings.maxLoginAttempts}
+            value={localSettings.maxLoginAttempts ?? 5}
             onChange={(e) => handleInputChange('maxLoginAttempts', parseInt(e.target.value))}
             description="Failed attempts before account lockout"
             min="3"
             max="10"
             required
+            disabled={saving}
           />
           
           <Input
             label="Lockout Duration (Minutes)"
             type="number"
-            value={securitySettings.lockoutDurationMinutes}
+            value={localSettings.lockoutDurationMinutes ?? 15}
             onChange={(e) => handleInputChange('lockoutDurationMinutes', parseInt(e.target.value))}
             description="Account lockout duration"
             min="5"
             max="1440"
             required
+            disabled={saving}
           />
           
           <Select
             label="Cookie SameSite Policy"
             options={cookieSameSiteOptions}
-            value={securitySettings.cookieSameSite}
+            value={localSettings.cookieSameSite || "strict"}
             onChange={(value) => handleInputChange('cookieSameSite', value)}
             description="Cookie security policy"
             required
+            disabled={saving}
           />
         </div>
       </div>
@@ -221,15 +230,17 @@ const SecurityPoliciesTab = () => {
             <Checkbox
               label="Require 2FA for All Users"
               description="Mandatory two-factor authentication"
-              checked={securitySettings.twoFactorRequired}
+              checked={localSettings.twoFactorRequired ?? false}
               onChange={(e) => handleInputChange('twoFactorRequired', e.target.checked)}
+              disabled={saving}
             />
             
             <Checkbox
               label="Require 2FA for Administrators"
               description="Mandatory 2FA for admin accounts"
-              checked={securitySettings.twoFactorForAdmins}
+              checked={localSettings.twoFactorForAdmins ?? true}
               onChange={(e) => handleInputChange('twoFactorForAdmins', e.target.checked)}
+              disabled={saving}
             />
           </div>
           
@@ -237,15 +248,17 @@ const SecurityPoliciesTab = () => {
             <Checkbox
               label="Email Verification Required"
               description="Verify email addresses during registration"
-              checked={securitySettings.emailVerificationRequired}
+              checked={localSettings.emailVerificationRequired ?? true}
               onChange={(e) => handleInputChange('emailVerificationRequired', e.target.checked)}
+              disabled={saving}
             />
             
             <Checkbox
               label="Phone Verification Required"
               description="Verify phone numbers during registration"
-              checked={securitySettings.phoneVerificationRequired}
+              checked={localSettings.phoneVerificationRequired ?? false}
               onChange={(e) => handleInputChange('phoneVerificationRequired', e.target.checked)}
+              disabled={saving}
             />
           </div>
         </div>
@@ -262,23 +275,25 @@ const SecurityPoliciesTab = () => {
           <Input
             label="Rate Limit (Requests)"
             type="number"
-            value={securitySettings.apiRateLimit}
+            value={localSettings.apiRateLimit ?? 1000}
             onChange={(e) => handleInputChange('apiRateLimit', parseInt(e.target.value))}
             description="Maximum requests per time window"
             min="100"
             max="10000"
             required
+            disabled={saving}
           />
           
           <Input
             label="Rate Limit Window (Minutes)"
             type="number"
-            value={securitySettings.apiRateLimitWindow}
+            value={localSettings.apiRateLimitWindow ?? 60}
             onChange={(e) => handleInputChange('apiRateLimitWindow', parseInt(e.target.value))}
             description="Time window for rate limiting"
             min="1"
             max="1440"
             required
+            disabled={saving}
           />
         </div>
         
@@ -288,6 +303,7 @@ const SecurityPoliciesTab = () => {
             onClick={generateApiKey}
             iconName="Key"
             iconPosition="left"
+            disabled={saving}
           >
             Generate New API Key
           </Button>
@@ -308,9 +324,10 @@ const SecurityPoliciesTab = () => {
             </label>
             <textarea
               className="w-full h-24 p-3 border border-border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-ring"
-              value={securitySettings.allowedIpAddresses}
+              value={localSettings.allowedIpAddresses || ""}
               onChange={(e) => handleInputChange('allowedIpAddresses', e.target.value)}
               placeholder="192.168.1.1&#10;10.0.0.0/8&#10;Leave empty to allow all"
+              disabled={saving}
             />
             <p className="text-xs text-muted-foreground mt-1">
               One IP address or CIDR block per line
@@ -323,9 +340,10 @@ const SecurityPoliciesTab = () => {
             </label>
             <textarea
               className="w-full h-24 p-3 border border-border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-ring"
-              value={securitySettings.blockedIpAddresses}
+              value={localSettings.blockedIpAddresses || ""}
               onChange={(e) => handleInputChange('blockedIpAddresses', e.target.value)}
               placeholder="192.168.1.100&#10;203.0.113.0/24"
+              disabled={saving}
             />
             <p className="text-xs text-muted-foreground mt-1">
               One IP address or CIDR block per line
@@ -346,23 +364,25 @@ const SecurityPoliciesTab = () => {
             <Input
               label="Data Retention (Days)"
               type="number"
-              value={securitySettings.dataRetentionDays}
+              value={localSettings.dataRetentionDays ?? 365}
               onChange={(e) => handleInputChange('dataRetentionDays', parseInt(e.target.value))}
               description="How long to keep user data"
               min="30"
               max="3650"
               required
+              disabled={saving}
             />
             
             <Input
               label="Audit Log Retention (Days)"
               type="number"
-              value={securitySettings.auditLogRetentionDays}
+              value={localSettings.auditLogRetentionDays ?? 730}
               onChange={(e) => handleInputChange('auditLogRetentionDays', parseInt(e.target.value))}
               description="How long to keep audit logs"
               min="90"
               max="3650"
               required
+              disabled={saving}
             />
           </div>
           
@@ -370,29 +390,33 @@ const SecurityPoliciesTab = () => {
             <Checkbox
               label="SSL/TLS Required"
               description="Force HTTPS connections"
-              checked={securitySettings.sslRequired}
+              checked={localSettings.sslRequired ?? true}
               onChange={(e) => handleInputChange('sslRequired', e.target.checked)}
+              disabled={saving}
             />
             
             <Checkbox
               label="Secure Cookies"
               description="Use secure cookie attributes"
-              checked={securitySettings.cookieSecure}
+              checked={localSettings.cookieSecure ?? true}
               onChange={(e) => handleInputChange('cookieSecure', e.target.checked)}
+              disabled={saving}
             />
             
             <Checkbox
               label="GDPR Compliance"
               description="Enable GDPR compliance features"
-              checked={securitySettings.gdprCompliance}
+              checked={localSettings.gdprCompliance ?? true}
               onChange={(e) => handleInputChange('gdprCompliance', e.target.checked)}
+              disabled={saving}
             />
             
             <Checkbox
               label="CCPA Compliance"
               description="Enable CCPA compliance features"
-              checked={securitySettings.ccpaCompliance}
+              checked={localSettings.ccpaCompliance ?? true}
               onChange={(e) => handleInputChange('ccpaCompliance', e.target.checked)}
+              disabled={saving}
             />
           </div>
         </div>
@@ -402,14 +426,14 @@ const SecurityPoliciesTab = () => {
       <div className="flex items-center justify-between pt-6 border-t border-border">
         <div className="flex items-center space-x-2 text-sm text-muted-foreground">
           <Icon name="Clock" size={16} />
-          <span>Last updated: July 17, 2025 at 5:28 AM</span>
+          <span>Last updated: {lastUpdated ? lastUpdated.toLocaleString() : 'N/A'}</span>
         </div>
         
         <div className="flex items-center space-x-3">
           <Button
             variant="outline"
             onClick={handleReset}
-            disabled={!isChanged}
+            disabled={!isChanged || saving}
           >
             Reset Changes
           </Button>
@@ -417,11 +441,11 @@ const SecurityPoliciesTab = () => {
           <Button
             variant="default"
             onClick={handleSave}
-            disabled={!isChanged}
+            disabled={!isChanged || saving}
             iconName="Save"
             iconPosition="left"
           >
-            Save Settings
+            {saving ? 'Saving...' : 'Save Settings'}
           </Button>
         </div>
       </div>

@@ -1,41 +1,37 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Input from '../../../components/ui/Input';
 import Button from '../../../components/ui/Button';
 import { Checkbox } from '../../../components/ui/Checkbox';
 import Select from '../../../components/ui/Select';
 import Icon from '../../../components/AppIcon';
+import LoadingSpinner from '../../../components/ui/LoadingSpinner';
+import ErrorState from '../../../components/ui/ErrorState';
+import usePlatformSettings from '../../../hooks/usePlatformSettings';
+import { useToast } from '../../../components/ui/Toast';
+import { logDebug } from '../../../utils/logger';
 
 const NotificationSettingsTab = () => {
-  const [notificationSettings, setNotificationSettings] = useState({
-    emailNotifications: true,
-    smsNotifications: false,
-    pushNotifications: true,
-    emailProvider: "sendgrid",
-    smsProvider: "twilio",
-    fromEmail: "noreply@spacio.com",
-    fromName: "SPACIO",
-    replyToEmail: "support@spacio.com",
-    welcomeEmail: true,
-    bookingConfirmation: true,
-    paymentReceipts: true,
-    cancellationNotice: true,
-    reminderEmails: true,
-    marketingEmails: false,
-    adminAlerts: true,
-    systemMaintenance: true,
-    securityAlerts: true
-  });
+  const { showToast } = useToast();
+  const {
+    settings: platformSettings,
+    loading,
+    saving,
+    error,
+    lastUpdated,
+    saveSettings: savePlatformSettings,
+    resetSettings: resetPlatformSettings,
+    refetch: refetchPlatformSettings,
+  } = usePlatformSettings('notifications');
 
-  const [selectedTemplate, setSelectedTemplate] = useState('welcome');
-  const [isChanged, setIsChanged] = useState(false);
+  const [localSettings, setLocalSettings] = useState({});
+  const initialSettingsRef = useRef({});
 
-  // Define user_name for template preview purposes
-  const user_name = "John Doe"; // Default user name for template previews
-  const space_name = "Modern Conference Room";
-  const booking_date = "2025-08-20";
-  const booking_time = "10:00 AM";
-  const duration = "2 hours";
-  const total_amount = "$50.00";
+  useEffect(() => {
+    if (!loading) {
+      setLocalSettings(platformSettings);
+      initialSettingsRef.current = { ...platformSettings };
+    }
+  }, [loading, platformSettings]);
 
   const emailProviderOptions = [
     { value: "sendgrid", label: "SendGrid" },
@@ -59,77 +55,52 @@ const NotificationSettingsTab = () => {
     { value: "password_reset", label: "Password Reset" }
   ];
 
-  const templateContent = {
-    welcome: {
-      subject: "Welcome to SPACIO!",
-      content: `Hi {{user_name}},\n\nWelcome to SPACIO! We're excited to have you join our community of space seekers and providers.\n\nYour account has been successfully created. You can now:\n• Browse and book amazing spaces\n• List your own spaces for rent\n• Connect with other users\n\nIf you have any questions, our support team is here to help.\n\nBest regards,\nThe SPACIO Team`
-    },
-    booking_confirmation: {
-      subject: "Booking Confirmed - {{space_name}}",
-      content: `Hi {{user_name}},\n\nYour booking has been confirmed!\n\nBooking Details:\n• Space: {{space_name}}\n• Date: {{booking_date}}\n• Time: {{booking_time}}\n• Duration: {{duration}}\n• Total Amount: {{total_amount}}\n\nYou'll receive a reminder 24 hours before your booking.\n\nThank you for choosing SPACIO!`
-    }
-  };
-
-  // Helper function to replace template variables
-  const replaceTemplateVariables = (content) => {
-    return content?.replace(/\{\{user_name\}\}/g, user_name)?.replace(/\{\{space_name\}\}/g, space_name)?.replace(/\{\{booking_date\}\}/g, booking_date)?.replace(/\{\{booking_time\}\}/g, booking_time)?.replace(/\{\{duration\}\}/g, duration)?.replace(/\{\{total_amount\}\}/g, total_amount);
-  };
-
   const handleInputChange = (field, value) => {
-    setNotificationSettings(prev => ({
+    setLocalSettings(prev => ({
       ...prev,
       [field]: value
     }));
-    setIsChanged(true);
   };
 
-  const handleSave = () => {
-    console.log('Saving notification settings:', notificationSettings);
-    setIsChanged(false);
-  };
+  const isChanged = Object.keys(localSettings).some(
+    (key) => localSettings[key] !== initialSettingsRef.current[key]
+  );
 
-  const handleReset = () => {
-    setNotificationSettings({
-      emailNotifications: true,
-      smsNotifications: false,
-      pushNotifications: true,
-      emailProvider: "sendgrid",
-      smsProvider: "twilio",
-      fromEmail: "noreply@spacio.com",
-      fromName: "SPACIO",
-      replyToEmail: "support@spacio.com",
-      welcomeEmail: true,
-      bookingConfirmation: true,
-      paymentReceipts: true,
-      cancellationNotice: true,
-      reminderEmails: true,
-      marketingEmails: false,
-      adminAlerts: true,
-      systemMaintenance: true,
-      securityAlerts: true
-    });
-    setIsChanged(false);
-  };
+  const handleSave = async () => {
+    const changedKeys = Object.keys(localSettings).filter(
+      (key) => localSettings[key] !== initialSettingsRef.current[key]
+    );
+    
+    if (changedKeys.length === 0) {
+      showToast('No changes to save', 'info');
+      return;
+    }
 
-  const handleTestEmail = () => {
-    console.log('Sending test email...');
-  };
-
-  const handlePreviewTemplate = () => {
-    const template = templateContent?.[selectedTemplate];
-    if (template) {
-      const previewContent = {
-        subject: replaceTemplateVariables(template?.subject),
-        content: replaceTemplateVariables(template?.content)
-      };
-      console.log('Template Preview:', previewContent);
-      alert(`Subject: ${previewContent?.subject}\n\nContent:\n${previewContent?.content}`);
+    logDebug('Saving notification settings changes:', changedKeys);
+    const success = await savePlatformSettings(localSettings, changedKeys);
+    
+    if (success) {
+      initialSettingsRef.current = { ...localSettings };
+      refetchPlatformSettings();
     }
   };
 
-  const handleSendTestTemplate = () => {
-    console.log('Sending test template email for:', selectedTemplate);
+  const handleReset = () => {
+    setLocalSettings(initialSettingsRef.current);
+    showToast('Changes reset to last saved state', 'info');
   };
+
+  const handleTestEmail = () => {
+    showToast('Test email functionality coming soon', 'info');
+  };
+
+  if (loading) {
+    return <LoadingSpinner text="Loading notification settings..." />;
+  }
+
+  if (error) {
+    return <ErrorState error={error} onRetry={refetchPlatformSettings} />;
+  }
 
   return (
     <div className="space-y-8">
@@ -144,25 +115,29 @@ const NotificationSettingsTab = () => {
           <Checkbox
             label="Email Notifications"
             description="Send notifications via email"
-            checked={notificationSettings?.emailNotifications}
-            onChange={(e) => handleInputChange('emailNotifications', e?.target?.checked)}
+            checked={localSettings.emailNotifications ?? true}
+            onChange={(e) => handleInputChange('emailNotifications', e.target.checked)}
+            disabled={saving}
           />
           
           <Checkbox
             label="SMS Notifications"
             description="Send notifications via SMS"
-            checked={notificationSettings?.smsNotifications}
-            onChange={(e) => handleInputChange('smsNotifications', e?.target?.checked)}
+            checked={localSettings.smsNotifications ?? false}
+            onChange={(e) => handleInputChange('smsNotifications', e.target.checked)}
+            disabled={saving}
           />
           
           <Checkbox
             label="Push Notifications"
             description="Send browser push notifications"
-            checked={notificationSettings?.pushNotifications}
-            onChange={(e) => handleInputChange('pushNotifications', e?.target?.checked)}
+            checked={localSettings.pushNotifications ?? true}
+            onChange={(e) => handleInputChange('pushNotifications', e.target.checked)}
+            disabled={saving}
           />
         </div>
       </div>
+
       {/* Email Configuration */}
       <div className="bg-card rounded-lg border border-border p-6">
         <div className="flex items-center space-x-2 mb-6">
@@ -174,46 +149,51 @@ const NotificationSettingsTab = () => {
           <Select
             label="Email Provider"
             options={emailProviderOptions}
-            value={notificationSettings?.emailProvider}
+            value={localSettings.emailProvider || "sendgrid"}
             onChange={(value) => handleInputChange('emailProvider', value)}
             description="Email service provider"
             required
+            disabled={saving}
           />
           
           <Select
             label="SMS Provider"
             options={smsProviderOptions}
-            value={notificationSettings?.smsProvider}
+            value={localSettings.smsProvider || "twilio"}
             onChange={(value) => handleInputChange('smsProvider', value)}
             description="SMS service provider"
             required
+            disabled={saving}
           />
           
           <Input
             label="From Email"
             type="email"
-            value={notificationSettings?.fromEmail}
-            onChange={(e) => handleInputChange('fromEmail', e?.target?.value)}
+            value={localSettings.fromEmail || ""}
+            onChange={(e) => handleInputChange('fromEmail', e.target.value)}
             description="Email address for outgoing messages"
             required
+            disabled={saving}
           />
           
           <Input
             label="From Name"
             type="text"
-            value={notificationSettings?.fromName}
-            onChange={(e) => handleInputChange('fromName', e?.target?.value)}
+            value={localSettings.fromName || ""}
+            onChange={(e) => handleInputChange('fromName', e.target.value)}
             description="Display name for outgoing emails"
             required
+            disabled={saving}
           />
           
           <Input
             label="Reply-To Email"
             type="email"
-            value={notificationSettings?.replyToEmail}
-            onChange={(e) => handleInputChange('replyToEmail', e?.target?.value)}
+            value={localSettings.replyToEmail || ""}
+            onChange={(e) => handleInputChange('replyToEmail', e.target.value)}
             description="Email for user replies"
             required
+            disabled={saving}
           />
           
           <div className="flex items-end">
@@ -223,12 +203,14 @@ const NotificationSettingsTab = () => {
               iconName="Send"
               iconPosition="left"
               className="w-full"
+              disabled={saving}
             >
               Send Test Email
             </Button>
           </div>
         </div>
       </div>
+
       {/* User Notifications */}
       <div className="bg-card rounded-lg border border-border p-6">
         <div className="flex items-center space-x-2 mb-6">
@@ -241,22 +223,25 @@ const NotificationSettingsTab = () => {
             <Checkbox
               label="Welcome Email"
               description="Send welcome email to new users"
-              checked={notificationSettings?.welcomeEmail}
-              onChange={(e) => handleInputChange('welcomeEmail', e?.target?.checked)}
+              checked={localSettings.welcomeEmail ?? true}
+              onChange={(e) => handleInputChange('welcomeEmail', e.target.checked)}
+              disabled={saving}
             />
             
             <Checkbox
               label="Booking Confirmation"
               description="Confirm successful bookings"
-              checked={notificationSettings?.bookingConfirmation}
-              onChange={(e) => handleInputChange('bookingConfirmation', e?.target?.checked)}
+              checked={localSettings.bookingConfirmation ?? true}
+              onChange={(e) => handleInputChange('bookingConfirmation', e.target.checked)}
+              disabled={saving}
             />
             
             <Checkbox
               label="Payment Receipts"
               description="Send payment confirmation receipts"
-              checked={notificationSettings?.paymentReceipts}
-              onChange={(e) => handleInputChange('paymentReceipts', e?.target?.checked)}
+              checked={localSettings.paymentReceipts ?? true}
+              onChange={(e) => handleInputChange('paymentReceipts', e.target.checked)}
+              disabled={saving}
             />
           </div>
           
@@ -264,26 +249,30 @@ const NotificationSettingsTab = () => {
             <Checkbox
               label="Cancellation Notice"
               description="Notify about booking cancellations"
-              checked={notificationSettings?.cancellationNotice}
-              onChange={(e) => handleInputChange('cancellationNotice', e?.target?.checked)}
+              checked={localSettings.cancellationNotice ?? true}
+              onChange={(e) => handleInputChange('cancellationNotice', e.target.checked)}
+              disabled={saving}
             />
             
             <Checkbox
               label="Reminder Emails"
               description="Send booking reminders"
-              checked={notificationSettings?.reminderEmails}
-              onChange={(e) => handleInputChange('reminderEmails', e?.target?.checked)}
+              checked={localSettings.reminderEmails ?? true}
+              onChange={(e) => handleInputChange('reminderEmails', e.target.checked)}
+              disabled={saving}
             />
             
             <Checkbox
               label="Marketing Emails"
               description="Send promotional content"
-              checked={notificationSettings?.marketingEmails}
-              onChange={(e) => handleInputChange('marketingEmails', e?.target?.checked)}
+              checked={localSettings.marketingEmails ?? false}
+              onChange={(e) => handleInputChange('marketingEmails', e.target.checked)}
+              disabled={saving}
             />
           </div>
         </div>
       </div>
+
       {/* Admin Notifications */}
       <div className="bg-card rounded-lg border border-border p-6">
         <div className="flex items-center space-x-2 mb-6">
@@ -295,98 +284,41 @@ const NotificationSettingsTab = () => {
           <Checkbox
             label="Admin Alerts"
             description="Critical system notifications"
-            checked={notificationSettings?.adminAlerts}
-            onChange={(e) => handleInputChange('adminAlerts', e?.target?.checked)}
+            checked={localSettings.adminAlerts ?? true}
+            onChange={(e) => handleInputChange('adminAlerts', e.target.checked)}
+            disabled={saving}
           />
           
           <Checkbox
             label="System Maintenance"
             description="Maintenance and update notifications"
-            checked={notificationSettings?.systemMaintenance}
-            onChange={(e) => handleInputChange('systemMaintenance', e?.target?.checked)}
+            checked={localSettings.systemMaintenance ?? true}
+            onChange={(e) => handleInputChange('systemMaintenance', e.target.checked)}
+            disabled={saving}
           />
           
           <Checkbox
             label="Security Alerts"
             description="Security-related notifications"
-            checked={notificationSettings?.securityAlerts}
-            onChange={(e) => handleInputChange('securityAlerts', e?.target?.checked)}
+            checked={localSettings.securityAlerts ?? true}
+            onChange={(e) => handleInputChange('securityAlerts', e.target.checked)}
+            disabled={saving}
           />
         </div>
       </div>
-      {/* Email Templates */}
-      <div className="bg-card rounded-lg border border-border p-6">
-        <div className="flex items-center space-x-2 mb-6">
-          <Icon name="FileText" size={20} className="text-primary" />
-          <h3 className="text-lg font-semibold text-card-foreground">Email Templates</h3>
-        </div>
-        
-        <div className="space-y-6">
-          <Select
-            label="Select Template"
-            options={templateOptions}
-            value={selectedTemplate}
-            onChange={setSelectedTemplate}
-            description="Choose a template to customize"
-          />
-          
-          {templateContent?.[selectedTemplate] && (
-            <div className="space-y-4">
-              <Input
-                label="Subject Line"
-                type="text"
-                value={templateContent?.[selectedTemplate]?.subject}
-                description="Email subject (supports variables like {{user_name}})"
-              />
-              
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Email Content
-                </label>
-                <textarea
-                  className="w-full h-48 p-3 border border-border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-ring"
-                  value={templateContent?.[selectedTemplate]?.content}
-                  placeholder="Email content..."
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Available variables: {{user_name}}, {{space_name}}, {{booking_date}}, {{total_amount}}
-                </p>
-              </div>
-              
-              <div className="flex items-center space-x-3">
-                <Button 
-                  variant="outline" 
-                  iconName="Eye" 
-                  iconPosition="left"
-                  onClick={handlePreviewTemplate}
-                >
-                  Preview Template
-                </Button>
-                <Button 
-                  variant="outline" 
-                  iconName="Send" 
-                  iconPosition="left"
-                  onClick={handleSendTestTemplate}
-                >
-                  Send Test
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
+
       {/* Action Buttons */}
       <div className="flex items-center justify-between pt-6 border-t border-border">
         <div className="flex items-center space-x-2 text-sm text-muted-foreground">
           <Icon name="Clock" size={16} />
-          <span>Last updated: August 15, 2025 at 1:11 AM</span>
+          <span>Last updated: {lastUpdated ? lastUpdated.toLocaleString() : 'N/A'}</span>
         </div>
         
         <div className="flex items-center space-x-3">
           <Button
             variant="outline"
             onClick={handleReset}
-            disabled={!isChanged}
+            disabled={!isChanged || saving}
           >
             Reset Changes
           </Button>
@@ -394,11 +326,11 @@ const NotificationSettingsTab = () => {
           <Button
             variant="default"
             onClick={handleSave}
-            disabled={!isChanged}
+            disabled={!isChanged || saving}
             iconName="Save"
             iconPosition="left"
           >
-            Save Settings
+            {saving ? 'Saving...' : 'Save Settings'}
           </Button>
         </div>
       </div>

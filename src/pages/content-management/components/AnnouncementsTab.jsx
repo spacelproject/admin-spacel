@@ -6,6 +6,8 @@ import Select from '../../../components/ui/Select';
 import ContentEditor from './ContentEditor';
 import ContentDetailsModal from './ContentDetailsModal';
 import ActionDropdown from './ActionDropdown';
+import useAnnouncements from '../../../hooks/useAnnouncements';
+import LoadingState from '../../../components/ui/LoadingState';
 
 const AnnouncementsTab = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -15,52 +17,44 @@ const AnnouncementsTab = () => {
   const [editingItem, setEditingItem] = useState(null);
   const [detailsModal, setDetailsModal] = useState({ isOpen: false, item: null });
 
-  const announcements = [
-    {
-      id: 1,
-      title: "Platform Maintenance Scheduled",
-      status: "published",
-      audience: "all_users",
-      publishDate: "2025-01-15T10:00:00Z",
-      scheduledDate: "2025-01-20T02:00:00Z",
-      author: "Admin Team",
-      views: 1250,
-      content: `We will be performing scheduled maintenance on our platform to improve performance and add new features.\n\nDuring this time, the platform will be temporarily unavailable. We apologize for any inconvenience.`
-    },
-    {
-      id: 2,
-      title: "New Host Verification Process",
-      status: "draft",
-      audience: "hosts_only",
-      publishDate: null,
-      scheduledDate: "2025-01-25T09:00:00Z",
-      author: "Policy Team",
-      views: 0,
-      content: `We're introducing enhanced verification requirements for all hosts to ensure platform safety and quality.\n\nThis new process will include identity verification and property documentation.`
-    },
-    {
-      id: 3,
-      title: "Holiday Booking Surge Notice",
-      status: "scheduled",
-      audience: "guests_only",
-      publishDate: null,
-      scheduledDate: "2025-02-01T08:00:00Z",
-      author: "Marketing Team",
-      views: 0,
-      content: `Due to increased demand during holiday season, we recommend booking your spaces early to secure availability.\n\nSpecial holiday rates may apply during peak periods.`
-    },
-    {
-      id: 4,
-      title: "Commission Structure Update",
-      status: "published",
-      audience: "hosts_only",
-      publishDate: "2025-01-10T14:30:00Z",
-      scheduledDate: null,
-      author: "Finance Team",
-      views: 890,
-      content: `We're updating our commission structure to better support our host community while maintaining platform sustainability.\n\nThe new rates will take effect from February 1st, 2025.`
-    }
-  ];
+  // Use real data from database
+  const { 
+    announcements, 
+    loading, 
+    error, 
+    createAnnouncement, 
+    updateAnnouncement, 
+    deleteAnnouncement, 
+    publishAnnouncement 
+  } = useAnnouncements();
+
+  // Show loading state
+  if (loading) {
+    return (
+      <div className="p-6">
+        <LoadingState message="Fetching announcements..." />
+      </div>
+    );
+  }
+
+  // Show error state
+  if (error) {
+    return (
+      <div className="p-6">
+        <div className="text-center py-12">
+          <Icon name="AlertCircle" size={48} className="text-error mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-foreground mb-2">Error Loading Announcements</h3>
+          <p className="text-muted-foreground mb-4">{error}</p>
+          <Button onClick={() => window.location.reload()}>
+            Try Again
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Use real announcements data
+  const displayAnnouncements = announcements || [];
 
   const statusOptions = [
     { value: 'all', label: 'All Status' },
@@ -72,11 +66,11 @@ const AnnouncementsTab = () => {
 
   const audienceOptions = [
     { value: 'all_users', label: 'All Users' },
-    { value: 'hosts_only', label: 'Hosts Only' },
-    { value: 'guests_only', label: 'Guests Only' }
+    { value: 'seekers_only', label: 'Seekers Only' },
+    { value: 'partners_only', label: 'Partners Only' }
   ];
 
-  const filteredAnnouncements = announcements?.filter(item => {
+  const filteredAnnouncements = displayAnnouncements?.filter(item => {
     const matchesSearch = item?.title?.toLowerCase()?.includes(searchTerm?.toLowerCase()) ||
                          item?.author?.toLowerCase()?.includes(searchTerm?.toLowerCase());
     const matchesStatus = statusFilter === 'all' || item?.status === statusFilter;
@@ -105,13 +99,40 @@ const AnnouncementsTab = () => {
   };
 
   const handleCreate = () => {
+    console.log('Creating new announcement...');
     setEditingItem(null);
     setShowEditor(true);
   };
 
-  const handleBulkAction = (action) => {
-    console.log(`Bulk ${action} for items:`, selectedItems);
-    setSelectedItems([]);
+  const handleBulkAction = async (action) => {
+    console.log(`Executing bulk action: ${action} on ${selectedItems?.length} announcements`);
+    
+    try {
+      switch (action) {
+        case 'publish':
+          for (const id of selectedItems) {
+            await publishAnnouncement(id);
+          }
+          break;
+        case 'archive':
+          for (const id of selectedItems) {
+            await updateAnnouncement(id, { status: 'archived' });
+          }
+          break;
+        case 'delete':
+          if (window.confirm(`Are you sure you want to delete ${selectedItems?.length} announcements?`)) {
+            for (const id of selectedItems) {
+              await deleteAnnouncement(id);
+            }
+          }
+          break;
+        default:
+          console.log('Unknown bulk action:', action);
+      }
+      setSelectedItems([]);
+    } catch (error) {
+      console.error('Error executing bulk action:', error);
+    }
   };
 
   const handleViewDetails = (item) => {
@@ -133,20 +154,29 @@ const AnnouncementsTab = () => {
     setShowEditor(true);
   };
 
-  const handlePublish = (item) => {
-    console.log('Publishing announcement:', item?.id);
-    // Update item status to published
+  const handlePublish = async (item) => {
+    try {
+      await publishAnnouncement(item.id);
+    } catch (error) {
+      console.error('Error publishing announcement:', error);
+    }
   };
 
-  const handleArchive = (item) => {
-    console.log('Archiving announcement:', item?.id);
-    // Update item status to archived
+  const handleArchive = async (item) => {
+    try {
+      await updateAnnouncement(item.id, { status: 'archived' });
+    } catch (error) {
+      console.error('Error archiving announcement:', error);
+    }
   };
 
-  const handleDelete = (item) => {
+  const handleDelete = async (item) => {
     if (window.confirm(`Are you sure you want to delete "${item?.title}"?`)) {
-      console.log('Deleting announcement:', item?.id);
-      // Remove item from list
+      try {
+        await deleteAnnouncement(item.id);
+      } catch (error) {
+        console.error('Error deleting announcement:', error);
+      }
     }
   };
 
@@ -188,9 +218,56 @@ const AnnouncementsTab = () => {
         item={editingItem}
         type="announcement"
         onClose={() => setShowEditor(false)}
-        onSave={(data) => {
-          console.log('Saving announcement:', data);
-          setShowEditor(false);
+        onSave={async (data) => {
+          try {
+            console.log('Saving announcement with data:', data);
+            
+            if (editingItem) {
+              // Update existing announcement
+              console.log('Updating existing announcement:', editingItem.id);
+              await updateAnnouncement(editingItem.id, {
+                title: data.title,
+                content: data.content,
+                status: data.status,
+                audience: data.audience,
+                scheduledDate: data.scheduledDate ? new Date(data.scheduledDate).toISOString() : null,
+                publishDate: data.status === 'published' ? new Date().toISOString() : null,
+                tags: data.tags || [],
+                priority: data.priority || 'medium',
+                metadata: {
+                  seoTitle: data.seoTitle,
+                  seoDescription: data.seoDescription,
+                  enableNotifications: data.enableNotifications
+                }
+              });
+            } else {
+              // Create new announcement
+              console.log('Creating new announcement...');
+              await createAnnouncement({
+                title: data.title,
+                content: data.content,
+                status: data.status,
+                audience: data.audience,
+                scheduledDate: data.scheduledDate ? new Date(data.scheduledDate).toISOString() : null,
+                publishDate: data.status === 'published' ? new Date().toISOString() : null,
+                tags: data.tags || [],
+                priority: data.priority || 'medium',
+                metadata: {
+                  seoTitle: data.seoTitle,
+                  seoDescription: data.seoDescription,
+                  enableNotifications: data.enableNotifications
+                }
+              });
+            }
+            
+            console.log('Announcement saved successfully!');
+            setShowEditor(false);
+            setEditingItem(null);
+          } catch (error) {
+            console.error('Error saving announcement:', error);
+            alert(`Error saving announcement: ${error.message || 'Unknown error'}`);
+            // Don't close editor on error so user can retry
+          }
         }}
       />
     );
@@ -258,7 +335,7 @@ const AnnouncementsTab = () => {
         </div>
       )}
       <div className="bg-card border border-border rounded-lg overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto overflow-y-visible">
           <table className="w-full">
             <thead className="bg-muted/50">
               <tr>

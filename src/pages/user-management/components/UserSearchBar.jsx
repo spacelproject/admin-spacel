@@ -1,39 +1,82 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Icon from '../../../components/AppIcon';
 import Input from '../../../components/ui/Input';
+import { supabase } from '../../../lib/supabase';
+
+// Debounced search hook
+const useDebounce = (value, delay) => {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+    
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+  
+  return debouncedValue;
+};
 
 const UserSearchBar = ({ onSearch, onBulkAction, selectedCount }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [suggestions, setSuggestions] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [showBulkActions, setShowBulkActions] = useState(false);
   const searchRef = useRef(null);
-  const bulkRef = useRef(null);
 
-  // Mock search suggestions
-  const suggestions = [
-    { type: 'user', name: 'John Smith', email: 'john.smith@email.com', id: 'USR001' },
-    { type: 'user', name: 'Sarah Johnson', email: 'sarah.j@email.com', id: 'USR002' },
-    { type: 'user', name: 'Michael Brown', email: 'michael.brown@email.com', id: 'USR003' },
-    { type: 'email', value: 'admin@spacio.com' },
-    { type: 'id', value: 'USR004' }
-  ];
+  // Use debounced search term
+  const debouncedSearchTerm = useDebounce(searchTerm, 300);
 
-  const bulkActions = [
-    { id: 'activate', label: 'Activate Users', icon: 'CheckCircle', variant: 'success' },
-    { id: 'suspend', label: 'Suspend Users', icon: 'XCircle', variant: 'warning' },
-    { id: 'delete', label: 'Delete Users', icon: 'Trash2', variant: 'destructive' },
-    { id: 'export', label: 'Export Selected', icon: 'Download', variant: 'default' },
-    { id: 'message', label: 'Send Message', icon: 'MessageCircle', variant: 'default' },
-    { id: 'role', label: 'Change Role', icon: 'UserCog', variant: 'default' }
-  ];
+  // Real search functionality
+  const searchUsers = async (query) => {
+    if (query.length < 2) {
+      setSuggestions([]);
+      return;
+    }
+    
+    setSearchLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, email, first_name, last_name, role, phone, company_name')
+        .or(`first_name.ilike.%${query}%,last_name.ilike.%${query}%,email.ilike.%${query}%`)
+        .limit(10);
+      
+      if (!error) {
+        const formattedSuggestions = data.map(user => ({
+          type: 'user',
+          name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'No Name',
+          email: user.email,
+          id: user.id,
+          role: user.role,
+          phone: user.phone,
+          company: user.company_name
+        }));
+        setSuggestions(formattedSuggestions);
+      } else {
+        console.error('Search error:', error);
+        setSuggestions([]);
+      }
+    } catch (err) {
+      console.error('Search error:', err);
+      setSuggestions([]);
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  // Effect to trigger search when debounced term changes
+  useEffect(() => {
+    searchUsers(debouncedSearchTerm);
+  }, [debouncedSearchTerm]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (searchRef.current && !searchRef.current.contains(event.target)) {
         setShowSuggestions(false);
-      }
-      if (bulkRef.current && !bulkRef.current.contains(event.target)) {
-        setShowBulkActions(false);
       }
     };
 
@@ -49,40 +92,22 @@ const UserSearchBar = ({ onSearch, onBulkAction, selectedCount }) => {
   };
 
   const handleSuggestionClick = (suggestion) => {
-    if (suggestion.type === 'user') {
-      setSearchTerm(suggestion.name);
-      onSearch(suggestion.name);
-    } else {
-      setSearchTerm(suggestion.value);
-      onSearch(suggestion.value);
-    }
+    setSearchTerm(suggestion.name);
+    onSearch(suggestion.name);
     setShowSuggestions(false);
   };
 
-  const handleBulkActionClick = (actionId) => {
-    onBulkAction(actionId);
-    setShowBulkActions(false);
-  };
-
-  const filteredSuggestions = suggestions.filter(suggestion => {
-    const searchLower = searchTerm.toLowerCase();
-    if (suggestion.type === 'user') {
-      return suggestion.name.toLowerCase().includes(searchLower) ||
-             suggestion.email.toLowerCase().includes(searchLower) ||
-             suggestion.id.toLowerCase().includes(searchLower);
-    }
-    return suggestion.value.toLowerCase().includes(searchLower);
-  });
+  // No need for client-side filtering since we're getting filtered results from Supabase
 
   return (
-    <div className="flex items-center space-x-4 mb-6">
+    <div className="bg-white border border-gray-200 rounded-lg p-3.5 card-shadow mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       {/* Search Bar */}
       <div className="flex-1 relative" ref={searchRef}>
         <div className="relative">
           <Icon 
             name="Search" 
-            size={20} 
-            className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" 
+            size={18} 
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" 
           />
           <Input
             type="search"
@@ -90,93 +115,94 @@ const UserSearchBar = ({ onSearch, onBulkAction, selectedCount }) => {
             value={searchTerm}
             onChange={handleSearchChange}
             onFocus={() => setShowSuggestions(searchTerm.length > 0)}
-            className="pl-10"
+            className="pl-9 h-9 text-sm"
           />
         </div>
 
         {/* Search Suggestions */}
-        {showSuggestions && filteredSuggestions.length > 0 && (
+        {showSuggestions && (
           <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-modal z-dropdown max-h-64 overflow-y-auto">
-            {filteredSuggestions.map((suggestion, index) => (
-              <button
-                key={index}
-                onClick={() => handleSuggestionClick(suggestion)}
-                className="w-full flex items-center space-x-3 px-4 py-3 text-left hover:bg-muted transition-smooth border-b border-border last:border-b-0"
-              >
-                <Icon 
-                  name={suggestion.type === 'user' ? 'User' : suggestion.type === 'email' ? 'Mail' : 'Hash'} 
-                  size={16} 
-                  className="text-muted-foreground flex-shrink-0" 
-                />
-                <div className="flex-1 min-w-0">
-                  {suggestion.type === 'user' ? (
-                    <>
-                      <p className="text-sm font-medium text-foreground truncate">
-                        {suggestion.name}
-                      </p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {suggestion.email} • {suggestion.id}
-                      </p>
-                    </>
-                  ) : (
-                    <p className="text-sm text-foreground truncate">
-                      {suggestion.value}
+            {searchLoading ? (
+              <div className="flex items-center justify-center px-4 py-3">
+                <Icon name="Loader2" size={16} className="animate-spin text-muted-foreground mr-2" />
+                <span className="text-sm text-muted-foreground">Searching...</span>
+              </div>
+            ) : suggestions.length > 0 ? (
+              suggestions.map((suggestion, index) => (
+                <button
+                  key={suggestion.id || index}
+                  onClick={() => handleSuggestionClick(suggestion)}
+                  className="w-full flex items-center space-x-3 px-4 py-3 text-left hover:bg-muted transition-smooth border-b border-border last:border-b-0"
+                >
+                  <Icon 
+                    name="User" 
+                    size={16} 
+                    className="text-muted-foreground flex-shrink-0" 
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">
+                      {suggestion.name}
                     </p>
-                  )}
-                </div>
-              </button>
-            ))}
+                    <p className="text-xs text-muted-foreground truncate">
+                      {suggestion.email} • {suggestion.role} • {suggestion.id.slice(0, 8)}...
+                    </p>
+                    {suggestion.company && (
+                      <p className="text-xs text-muted-foreground truncate">
+                        {suggestion.company}
+                      </p>
+                    )}
+                  </div>
+                </button>
+              ))
+            ) : searchTerm.length >= 2 ? (
+              <div className="px-4 py-3 text-center">
+                <Icon name="Search" size={16} className="text-muted-foreground mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">No users found</p>
+              </div>
+            ) : null}
           </div>
         )}
       </div>
 
-      {/* Bulk Actions */}
-      {selectedCount > 0 && (
-        <div className="relative" ref={bulkRef}>
-          <button
-            onClick={() => setShowBulkActions(!showBulkActions)}
-            className="flex items-center space-x-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-smooth"
-          >
-            <Icon name="Settings" size={16} />
-            <span className="text-sm font-medium">
-              Bulk Actions ({selectedCount})
+      {/* Selection / Bulk Actions Bar */}
+      <div className="flex items-center justify-end gap-2 text-xs md:text-sm">
+        {selectedCount > 0 ? (
+          <>
+            <span className="font-medium text-gray-800">
+              {selectedCount} selected
             </span>
-            <Icon name="ChevronDown" size={16} />
-          </button>
-
-          {/* Bulk Actions Dropdown */}
-          {showBulkActions && (
-            <div className="absolute top-full right-0 mt-2 w-48 bg-popover border border-border rounded-md shadow-modal z-dropdown">
-              <div className="py-2">
-                {bulkActions.map((action) => (
-                  <button
-                    key={action.id}
-                    onClick={() => handleBulkActionClick(action.id)}
-                    className={`
-                      w-full flex items-center space-x-3 px-4 py-2 text-left transition-smooth
-                      ${action.variant === 'destructive' ?'text-destructive hover:bg-destructive/10' 
-                        : action.variant === 'warning' ?'text-warning hover:bg-warning/10'
-                        : action.variant === 'success' ?'text-success hover:bg-success/10' :'text-popover-foreground hover:bg-muted'
-                      }
-                    `}
-                  >
-                    <Icon 
-                      name={action.icon} 
-                      size={16} 
-                      className={
-                        action.variant === 'destructive' ? 'text-destructive' :
-                        action.variant === 'warning' ? 'text-warning' :
-                        action.variant === 'success'? 'text-success' : 'text-muted-foreground'
-                      }
-                    />
-                    <span className="text-sm font-medium">{action.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+            <button
+              type="button"
+              onClick={() => onBulkAction('activate')}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-gray-200 text-gray-700 hover:bg-gray-50 transition-smooth"
+            >
+              <Icon name="CheckCircle" size={14} className="text-emerald-500" />
+              <span>Activate</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onBulkAction('suspend')}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-gray-200 text-gray-700 hover:bg-gray-50 transition-smooth"
+            >
+              <Icon name="PauseCircle" size={14} className="text-amber-500" />
+              <span>Suspend</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onBulkAction('delete')}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-red-100 text-red-600 hover:bg-red-50 transition-smooth"
+            >
+              <Icon name="Trash2" size={14} className="text-red-500" />
+              <span>Delete</span>
+            </button>
+          </>
+        ) : (
+          <div className="flex items-center gap-2 text-[11px] md:text-xs text-gray-500">
+            <span className="hidden md:inline-block">Tip:</span>
+            <span>Select rows to run bulk actions like activate, suspend, or delete.</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

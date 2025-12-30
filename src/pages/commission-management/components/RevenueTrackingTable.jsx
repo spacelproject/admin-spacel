@@ -4,8 +4,9 @@ import Button from '../../../components/ui/Button';
 import Input from '../../../components/ui/Input';
 import Select from '../../../components/ui/Select';
 import Image from '../../../components/AppImage';
+import TransactionDetailsModal from './TransactionDetailsModal';
 
-const RevenueTrackingTable = ({ onExport }) => {
+const RevenueTrackingTable = ({ bookings, onExport }) => {
   const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
   const [filters, setFilters] = useState({
     dateRange: 'all',
@@ -18,101 +19,46 @@ const RevenueTrackingTable = ({ onExport }) => {
   });
   const [currentPage, setCurrentPage] = useState(1);
   const [showCustomDateRange, setShowCustomDateRange] = useState(false);
+  const [selectedTransaction, setSelectedTransaction] = useState(null);
   const itemsPerPage = 10;
 
-  // Mock transaction data
-  const transactions = [
-    {
-      id: 'BK-2025-001',
-      bookingId: 'BK-2025-001',
-      host: {
-        name: 'Sarah Johnson',
-        avatar: 'https://images.unsplash.com/photo-1494790108755-2616b9c9b8d8?w=150'
-      },
-      space: {
-        name: 'Modern Conference Room',
-        category: 'office'
-      },
-      bookingAmount: 450.00,
-      commissionRate: 15,
-      platformFee: 67.50,
-      hostPayout: 382.50,
-      date: '2025-01-15',
-      status: 'completed'
-    },
-    {
-      id: 'BK-2025-002',
-      bookingId: 'BK-2025-002',
-      host: {
-        name: 'Michael Chen',
-        avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150'
-      },
-      space: {
-        name: 'Creative Coworking Space',
-        category: 'creative'
-      },
-      bookingAmount: 280.00,
-      commissionRate: 18,
-      platformFee: 50.40,
-      hostPayout: 229.60,
-      date: '2025-01-14',
-      status: 'completed'
-    },
-    {
-      id: 'BK-2025-003',
-      bookingId: 'BK-2025-003',
-      host: {
-        name: 'Emily Rodriguez',
-        avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150'
-      },
-      space: {
-        name: 'Executive Office Suite',
-        category: 'office'
-      },
-      bookingAmount: 750.00,
-      commissionRate: 12,
-      platformFee: 90.00,
-      hostPayout: 660.00,
-      date: '2025-01-13',
-      status: 'completed'
-    },
-    {
-      id: 'BK-2025-004',
-      bookingId: 'BK-2025-004',
-      host: {
-        name: 'David Park',
-        avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150'
-      },
-      space: {
-        name: 'Event Hall Premium',
-        category: 'entertainment'
-      },
-      bookingAmount: 1200.00,
-      commissionRate: 20,
-      platformFee: 240.00,
-      hostPayout: 960.00,
-      date: '2025-01-12',
-      status: 'completed'
-    },
-    {
-      id: 'BK-2025-005',
-      bookingId: 'BK-2025-005',
-      host: {
-        name: 'Lisa Thompson',
-        avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150'
-      },
-      space: {
-        name: 'Retail Storefront',
-        category: 'retail'
-      },
-      bookingAmount: 150.00,
-      commissionRate: 10,
-      platformFee: 15.00,
-      hostPayout: 135.00,
-      date: '2025-01-11',
-      status: 'completed'
-    }
-  ];
+  // Use only real data from props
+  const transactions = bookings && bookings.length > 0 ? 
+    bookings.map(booking => {
+      // For partial refunds, platform keeps full application fee
+      // For full refunds, platform earnings should be 0 (already handled in useCommissionData)
+      const platformEarnings = booking.netApplicationFee !== null && booking.netApplicationFee !== undefined 
+        ? booking.netApplicationFee 
+        : booking.platformEarnings || 0
+      
+      return {
+        id: booking.id,
+        bookingId: booking.booking_reference || booking.bookingId,
+        paymentIntentId: booking.stripePaymentIntentId,
+        host: {
+          name: booking.hostName,
+          avatar: booking.hostAvatar
+        },
+        space: {
+          name: booking.spaceName,
+          category: booking.spaceCategory || 'office'
+        },
+        bookingAmount: booking.bookingAmount,
+        // Use netApplicationFee (Net Application Fee) as Platform Earnings - this is what platform keeps after Stripe fees
+        // For partial refunds, this includes the full application fee (platform keeps it)
+        platformEarnings: platformEarnings,
+        hostPayout: booking.hostPayout,
+        date: booking.bookingDate.toISOString().split('T')[0],
+        status: booking.paymentStatus || booking.bookingStatus || 'pending',
+        // Refund information
+        refundAmount: booking.refundAmount || 0,
+        transferReversalAmount: booking.transferReversalAmount || 0,
+        isFullRefund: booking.isFullRefund || false,
+        isPartialRefund: booking.isPartialRefund || false,
+        is50_50Split: booking.is50_50Split || false,
+        bookingData: booking // Store full booking data for modal
+      }
+    }) : [];
 
   const dateRangeOptions = [
     { value: 'all', label: 'All Time' },
@@ -232,8 +178,32 @@ const RevenueTrackingTable = ({ onExport }) => {
       } else if (sortConfig?.key === 'space') {
         aValue = a?.space?.name;
         bValue = b?.space?.name;
+      } else if (sortConfig?.key === 'platformEarnings') {
+        // Sort by platform earnings (after Stripe fees)
+        aValue = a?.platformEarnings || 0;
+        bValue = b?.platformEarnings || 0;
+      } else if (sortConfig?.key === 'status') {
+        // Sort by status
+        aValue = a?.status || 'pending';
+        bValue = b?.status || 'pending';
+      } else if (sortConfig?.key === 'date') {
+        // Parse dates for proper date sorting
+        aValue = new Date(aValue);
+        bValue = new Date(bValue);
+        // Compare dates directly (numbers)
+        if (aValue < bValue) return sortConfig?.direction === 'asc' ? -1 : 1;
+        if (aValue > bValue) return sortConfig?.direction === 'asc' ? 1 : -1;
+        return 0;
       }
 
+      // Handle numeric values
+      if (typeof aValue === 'number' && typeof bValue === 'number') {
+        if (aValue < bValue) return sortConfig?.direction === 'asc' ? -1 : 1;
+        if (aValue > bValue) return sortConfig?.direction === 'asc' ? 1 : -1;
+        return 0;
+      }
+
+      // Handle string values
       if (typeof aValue === 'string') {
         aValue = aValue?.toLowerCase();
         bValue = bValue?.toLowerCase();
@@ -292,9 +262,10 @@ const RevenueTrackingTable = ({ onExport }) => {
   };
 
   const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-US', {
+    return new Intl.NumberFormat('en-AU', {
       style: 'currency',
-      currency: 'USD'
+      currency: 'AUD',
+      minimumFractionDigits: 2
     })?.format(amount);
   };
 
@@ -304,7 +275,7 @@ const RevenueTrackingTable = ({ onExport }) => {
   };
 
   return (
-    <div className="bg-card rounded-lg border border-border">
+    <div className="bg-card rounded-lg border border-border w-full">
       {/* Header */}
       <div className="p-6 border-b border-border">
         <div className="flex items-center justify-between mb-4">
@@ -346,7 +317,7 @@ const RevenueTrackingTable = ({ onExport }) => {
             <Input
               label="Min Amount"
               type="number"
-              placeholder="$0"
+              placeholder="A$0"
               value={filters?.minAmount}
               onChange={(e) => handleFilterChange('minAmount', e?.target?.value)}
             />
@@ -355,7 +326,7 @@ const RevenueTrackingTable = ({ onExport }) => {
               <Input
                 label="Max Amount"
                 type="number"
-                placeholder="$10000"
+                placeholder="A$10000"
                 value={filters?.maxAmount}
                 onChange={(e) => handleFilterChange('maxAmount', e?.target?.value)}
                 className="flex-1"
@@ -390,8 +361,8 @@ const RevenueTrackingTable = ({ onExport }) => {
         </div>
       </div>
       {/* Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full">
+      <div className="overflow-x-auto w-full">
+        <table className="w-full min-w-full table-auto">
           <thead className="bg-muted">
             <tr>
               <th className="text-left p-4">
@@ -399,7 +370,7 @@ const RevenueTrackingTable = ({ onExport }) => {
                   onClick={() => handleSort('bookingId')}
                   className="flex items-center space-x-1 text-sm font-medium text-muted-foreground hover:text-foreground"
                 >
-                  <span>Booking ID</span>
+                  <span>Reference</span>
                   <Icon name="ArrowUpDown" size={14} />
                 </button>
               </th>
@@ -432,19 +403,10 @@ const RevenueTrackingTable = ({ onExport }) => {
               </th>
               <th className="text-left p-4">
                 <button
-                  onClick={() => handleSort('commissionRate')}
+                  onClick={() => handleSort('platformEarnings')}
                   className="flex items-center space-x-1 text-sm font-medium text-muted-foreground hover:text-foreground"
                 >
-                  <span>Commission Rate</span>
-                  <Icon name="ArrowUpDown" size={14} />
-                </button>
-              </th>
-              <th className="text-left p-4">
-                <button
-                  onClick={() => handleSort('platformFee')}
-                  className="flex items-center space-x-1 text-sm font-medium text-muted-foreground hover:text-foreground"
-                >
-                  <span>Platform Fee</span>
+                  <span>Platform Earnings</span>
                   <Icon name="ArrowUpDown" size={14} />
                 </button>
               </th>
@@ -456,6 +418,16 @@ const RevenueTrackingTable = ({ onExport }) => {
                   <span>Host Payout</span>
                   <Icon name="ArrowUpDown" size={14} />
                 </button>
+                <p className="text-xs text-muted-foreground mt-1">Actual transfer amount</p>
+              </th>
+              <th className="text-left p-4">
+                <button
+                  onClick={() => handleSort('status')}
+                  className="flex items-center space-x-1 text-sm font-medium text-muted-foreground hover:text-foreground"
+                >
+                  <span>Status</span>
+                  <Icon name="ArrowUpDown" size={14} />
+                </button>
               </th>
               <th className="text-left p-4">
                 <button
@@ -465,6 +437,9 @@ const RevenueTrackingTable = ({ onExport }) => {
                   <span>Date</span>
                   <Icon name="ArrowUpDown" size={14} />
                 </button>
+              </th>
+              <th className="text-left p-4">
+                <span className="text-sm font-medium text-muted-foreground">Actions</span>
               </th>
             </tr>
           </thead>
@@ -494,34 +469,107 @@ const RevenueTrackingTable = ({ onExport }) => {
                 </td>
                 <td className="p-4">
                   <span className="text-sm font-medium text-card-foreground">
-                    {formatCurrency(transaction?.bookingAmount)}
-                  </span>
-                </td>
-                <td className="p-4">
-                  <span className="text-sm font-medium text-primary">
-                    {transaction?.commissionRate}%
+                    {formatCurrency(transaction?.bookingAmount || 0)}
                   </span>
                 </td>
                 <td className="p-4">
                   <span className="text-sm font-medium text-success">
-                    {formatCurrency(transaction?.platformFee)}
+                    {formatCurrency(transaction?.platformEarnings || 0)}
                   </span>
+                  <p className="text-xs text-success/70 mt-1">
+                    {transaction?.isPartialRefund || transaction?.is50_50Split 
+                      ? 'Net Application Fee (Kept)' 
+                      : 'Net Application Fee'}
+                  </p>
+                  {(transaction?.isPartialRefund || transaction?.is50_50Split) && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Partial refund - Platform keeps full fee
+                    </p>
+                  )}
                 </td>
                 <td className="p-4">
                   <span className="text-sm font-medium text-card-foreground">
-                    {formatCurrency(transaction?.hostPayout)}
+                    {formatCurrency(transaction?.hostPayout || 0)}
                   </span>
+                  <p className={`text-xs mt-1 ${
+                    transaction?.hostPayoutStatus === 'paid' 
+                      ? 'text-success' 
+                      : transaction?.hostPayoutStatus === 'pending'
+                      ? 'text-warning'
+                      : 'text-muted-foreground'
+                  }`}>
+                    {transaction?.hostPayoutStatus === 'paid' 
+                      ? '✓ Withdrawn to bank' 
+                      : transaction?.hostPayoutStatus === 'pending'
+                      ? '⏳ Pending withdrawal'
+                      : 'Via Stripe Connect'}
+                  </p>
+                </td>
+                <td className="p-4">
+                  <span className="text-sm font-medium">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      transaction?.status === 'paid' || transaction?.status === 'successful' 
+                        ? 'bg-success/10 text-success' 
+                        : transaction?.status === 'refunded'
+                        ? transaction?.isPartialRefund || transaction?.is50_50Split
+                          ? 'bg-warning/10 text-warning'
+                          : 'bg-error/10 text-error'
+                        : transaction?.status === 'failed'
+                        ? 'bg-error/10 text-error'
+                        : 'bg-muted text-muted-foreground'
+                    }`}>
+                      {transaction?.status === 'paid' ? 'Successful' : 
+                       transaction?.status === 'refunded' 
+                         ? transaction?.is50_50Split 
+                           ? '50/50 Refund'
+                           : transaction?.isPartialRefund
+                           ? 'Partial Refund'
+                           : 'Full Refund'
+                       : transaction?.status === 'failed' ? 'Failed' :
+                       transaction?.status === 'pending' ? 'Pending' :
+                       transaction?.status?.charAt(0).toUpperCase() + transaction?.status?.slice(1) || 'Pending'}
+                    </span>
+                  </span>
+                  {(transaction?.isPartialRefund || transaction?.is50_50Split) && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Refund: {formatCurrency((transaction?.refundAmount || 0) + (transaction?.transferReversalAmount || 0))}
+                    </p>
+                  )}
                 </td>
                 <td className="p-4">
                   <span className="text-sm text-muted-foreground">
                     {new Date(transaction.date)?.toLocaleDateString('en-US')}
                   </span>
                 </td>
+                <td className="p-4">
+                  {transaction.paymentIntentId ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      iconName="Eye"
+                      onClick={() => setSelectedTransaction(transaction)}
+                    >
+                      View Details
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">No Payment ID</span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {/* Transaction Details Modal */}
+      {selectedTransaction && (
+        <TransactionDetailsModal
+          isOpen={!!selectedTransaction}
+          onClose={() => setSelectedTransaction(null)}
+          paymentIntentId={selectedTransaction.paymentIntentId}
+          bookingData={selectedTransaction.bookingData}
+        />
+      )}
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between p-4 border-t border-border">

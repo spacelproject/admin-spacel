@@ -34,7 +34,7 @@ const BookingStatusBadge = ({ status }) => {
   const config = getStatusConfig(status);
 
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${config.className}`}>
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${config.className}`}>
       {config.label}
     </span>
   );

@@ -1,19 +1,30 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Icon from '../../../components/AppIcon';
 import Input from '../../../components/ui/Input';
 import Select from '../../../components/ui/Select';
 import Button from '../../../components/ui/Button';
+import BookingSearchBar from './BookingSearchBar';
+import { useToast } from '../../../components/ui/Toast';
 
-const BookingFilters = ({ onFiltersChange, bookingCounts }) => {
+const BookingFilters = ({ onFiltersChange, bookingCounts, bookings = [] }) => {
+  const { showToast } = useToast();
   const [filters, setFilters] = useState({
     dateRange: { start: '', end: '' },
     status: '',
     paymentStatus: '',
     amountRange: { min: '', max: '' },
-    searchQuery: ''
+    searchQuery: '',
+    guestName: '',
+    guestEmail: '',
+    hostName: '',
+    bookingType: '',
+    payoutStatus: ''
   });
 
   const [isExpanded, setIsExpanded] = useState(false);
+  const [savedPresets, setSavedPresets] = useState([]);
+  const [showPresetModal, setShowPresetModal] = useState(false);
+  const [presetName, setPresetName] = useState('');
 
   const statusOptions = [
     { value: '', label: 'All Statuses' },
@@ -30,6 +41,22 @@ const BookingFilters = ({ onFiltersChange, bookingCounts }) => {
     { value: 'refunded', label: 'Refunded' },
     { value: 'failed', label: 'Failed' }
   ];
+
+  const bookingTypeOptions = [
+    { value: '', label: 'All Types' },
+    { value: 'instant', label: 'Instant' },
+    { value: 'request', label: 'Request' },
+    { value: 'recurring', label: 'Recurring' }
+  ];
+
+  const payoutStatusOptions = [
+    { value: '', label: 'All Payout Status' },
+    { value: 'pending', label: 'Pending' },
+    { value: 'processing', label: 'Processing' },
+    { value: 'completed', label: 'Completed' },
+    { value: 'failed', label: 'Failed' }
+  ];
+
 
   const handleFilterChange = (key, value) => {
     const newFilters = { ...filters, [key]: value };
@@ -57,7 +84,12 @@ const BookingFilters = ({ onFiltersChange, bookingCounts }) => {
       status: '',
       paymentStatus: '',
       amountRange: { min: '', max: '' },
-      searchQuery: ''
+      searchQuery: '',
+      guestName: '',
+      guestEmail: '',
+      hostName: '',
+      bookingType: '',
+      payoutStatus: ''
     };
     setFilters(clearedFilters);
     onFiltersChange(clearedFilters);
@@ -66,28 +98,73 @@ const BookingFilters = ({ onFiltersChange, bookingCounts }) => {
   const hasActiveFilters = filters.status || filters.paymentStatus || 
     filters.dateRange.start || filters.dateRange.end || 
     filters.amountRange.min || filters.amountRange.max || 
-    filters.searchQuery;
+    filters.searchQuery || filters.guestName || filters.guestEmail ||
+    filters.hostName || filters.bookingType || filters.payoutStatus;
+
+  // Load saved presets from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('booking_filter_presets');
+      if (saved) {
+        setSavedPresets(JSON.parse(saved));
+      }
+    } catch (error) {
+      console.error('Error loading filter presets:', error);
+    }
+  }, []);
+
+  const handleSavePreset = () => {
+    if (!presetName.trim()) {
+      showToast('Please enter a name for this filter preset', 'error');
+      return;
+    }
+
+    try {
+      const newPreset = {
+        id: Date.now().toString(),
+        name: presetName.trim(),
+        filters: { ...filters },
+        created_at: new Date().toISOString()
+      };
+
+      const updatedPresets = [...savedPresets, newPreset];
+      setSavedPresets(updatedPresets);
+      localStorage.setItem('booking_filter_presets', JSON.stringify(updatedPresets));
+      showToast('Filter preset saved successfully', 'success');
+      setPresetName('');
+      setShowPresetModal(false);
+    } catch (error) {
+      console.error('Error saving preset:', error);
+      showToast('Error saving filter preset', 'error');
+    }
+  };
+
+  const handleLoadPreset = (preset) => {
+    setFilters(preset.filters);
+    onFiltersChange(preset.filters);
+    showToast(`Loaded filter preset: ${preset.name}`, 'success');
+  };
+
+  const handleDeletePreset = (presetId) => {
+    try {
+      const updatedPresets = savedPresets.filter(p => p.id !== presetId);
+      setSavedPresets(updatedPresets);
+      localStorage.setItem('booking_filter_presets', JSON.stringify(updatedPresets));
+      showToast('Filter preset deleted', 'success');
+    } catch (error) {
+      console.error('Error deleting preset:', error);
+      showToast('Error deleting filter preset', 'error');
+    }
+  };
 
   return (
     <div className="bg-card border border-border rounded-lg p-6 mb-6">
       {/* Search Bar */}
       <div className="flex flex-col lg:flex-row gap-4 mb-4">
-        <div className="flex-1">
-          <div className="relative">
-            <Icon 
-              name="Search" 
-              size={20} 
-              className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              type="search"
-              placeholder="Search by booking ID, guest name, or space name..."
-              value={filters.searchQuery}
-              onChange={(e) => handleFilterChange('searchQuery', e.target.value)}
-              className="pl-10"
-            />
-          </div>
-        </div>
+        <BookingSearchBar
+          onSearch={(value) => handleFilterChange('searchQuery', value)}
+          bookings={bookings}
+        />
         <Button
           variant="outline"
           onClick={() => setIsExpanded(!isExpanded)}
@@ -159,23 +236,171 @@ const BookingFilters = ({ onFiltersChange, bookingCounts }) => {
                 />
               </div>
             </div>
+
+            {/* Guest Name */}
+            <div>
+              <Input
+                label="Guest Name"
+                placeholder="Filter by guest name"
+                value={filters.guestName}
+                onChange={(e) => handleFilterChange('guestName', e.target.value)}
+              />
+            </div>
+
+            {/* Guest Email */}
+            <div>
+              <Input
+                label="Guest Email"
+                type="email"
+                placeholder="Filter by guest email"
+                value={filters.guestEmail}
+                onChange={(e) => handleFilterChange('guestEmail', e.target.value)}
+              />
+            </div>
+
+            {/* Host Name */}
+            <div>
+              <Input
+                label="Host Name"
+                placeholder="Filter by host name"
+                value={filters.hostName}
+                onChange={(e) => handleFilterChange('hostName', e.target.value)}
+              />
+            </div>
+
+            {/* Booking Type */}
+            <div>
+              <Select
+                label="Booking Type"
+                options={bookingTypeOptions}
+                value={filters.bookingType}
+                onChange={(value) => handleFilterChange('bookingType', value)}
+              />
+            </div>
+
+            {/* Payout Status */}
+            <div>
+              <Select
+                label="Payout Status"
+                options={payoutStatusOptions}
+                value={filters.payoutStatus}
+                onChange={(value) => handleFilterChange('payoutStatus', value)}
+              />
+            </div>
           </div>
 
           {/* Filter Actions */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-4">
             <div className="text-sm text-muted-foreground">
               Showing {bookingCounts.filtered} of {bookingCounts.total} bookings
             </div>
-            {hasActiveFilters && (
+            <div className="flex items-center space-x-2">
+              {/* Filter Presets */}
+              {savedPresets.length > 0 && (
+                <div className="relative">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowPresetModal(!showPresetModal)}
+                    iconName="Bookmark"
+                    iconPosition="left"
+                    size="sm"
+                  >
+                    Presets ({savedPresets.length})
+                  </Button>
+                  {showPresetModal && (
+                    <div className="absolute right-0 top-full mt-2 w-64 bg-popover border border-border rounded-md shadow-modal z-dropdown">
+                      <div className="p-2">
+                        <div className="px-2 py-1 text-xs font-medium text-muted-foreground uppercase">
+                          Saved Presets
+                        </div>
+                        {savedPresets.map(preset => (
+                          <div key={preset.id} className="flex items-center justify-between px-2 py-2 hover:bg-muted rounded">
+                            <button
+                              onClick={() => {
+                                handleLoadPreset(preset);
+                                setShowPresetModal(false);
+                              }}
+                              className="flex-1 text-left text-sm text-foreground"
+                            >
+                              {preset.name}
+                            </button>
+                            <button
+                              onClick={() => handleDeletePreset(preset.id)}
+                              className="p-1 hover:bg-destructive/10 rounded"
+                            >
+                              <Icon name="Trash2" size={14} className="text-destructive" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
               <Button
-                variant="ghost"
-                onClick={clearFilters}
-                iconName="X"
+                variant="outline"
+                onClick={() => setShowPresetModal(true)}
+                iconName="Save"
                 iconPosition="left"
+                size="sm"
               >
-                Clear Filters
+                Save Preset
               </Button>
-            )}
+              {hasActiveFilters && (
+                <Button
+                  variant="ghost"
+                  onClick={clearFilters}
+                  iconName="X"
+                  iconPosition="left"
+                  size="sm"
+                >
+                  Clear Filters
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Save Preset Modal */}
+      {showPresetModal && !savedPresets.find(p => p.id === 'temp') && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-modal p-4">
+          <div className="bg-card rounded-lg shadow-modal w-full max-w-md">
+            <div className="p-6 border-b border-border">
+              <h3 className="text-lg font-semibold text-foreground">Save Filter Preset</h3>
+            </div>
+            <div className="p-6 space-y-4">
+              <Input
+                label="Preset Name"
+                placeholder="Enter a name for this filter preset"
+                value={presetName}
+                onChange={(e) => setPresetName(e.target.value)}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    handleSavePreset();
+                  }
+                }}
+              />
+              <div className="flex items-center justify-end space-x-3">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowPresetModal(false);
+                    setPresetName('');
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="default"
+                  onClick={handleSavePreset}
+                  iconName="Save"
+                  iconPosition="left"
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
       )}

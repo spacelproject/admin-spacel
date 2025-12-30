@@ -18,7 +18,6 @@ const SettingsSearch = ({ onSearch, onClear }) => {
     { id: 'default-currency', label: 'Default Currency', tab: 'payment', category: 'Currency Configuration' },
     { id: 'stripe-enabled', label: 'Stripe', tab: 'payment', category: 'Payment Methods' },
     { id: 'platform-fee', label: 'Platform Fee', tab: 'payment', category: 'Fee Structure' },
-    { id: 'payout-schedule', label: 'Payout Schedule', tab: 'payment', category: 'Payout Configuration' },
     { id: 'email-notifications', label: 'Email Notifications', tab: 'notifications', category: 'Notification Channels' },
     { id: 'email-provider', label: 'Email Provider', tab: 'notifications', category: 'Email Configuration' },
     { id: 'welcome-email', label: 'Welcome Email', tab: 'notifications', category: 'User Notifications' },

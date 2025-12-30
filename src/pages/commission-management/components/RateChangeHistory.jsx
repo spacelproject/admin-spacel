@@ -1,24 +1,193 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import Input from '../../../components/ui/Input';
 import Select from '../../../components/ui/Select';
+import { supabase } from '../../../lib/supabase';
+import { useAuth } from '../../../contexts/AuthContext';
+import LoadingState from '../../../components/ui/LoadingState';
 
 const RateChangeHistory = () => {
+  const { user, isAdmin } = useAuth();
   const [filters, setFilters] = useState({
     dateRange: 'all',
     admin: '',
     changeType: 'all'
   });
+  const [rateChanges, setRateChanges] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Mock rate change history data
-  const rateChanges = [
+  // Fetch rate change history from platform_settings_history
+  useEffect(() => {
+    const fetchRateChangeHistory = async () => {
+      if (!isAdmin) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Build query for commission-related rate changes
+        let query = supabase
+          .from('platform_settings_history')
+          .select('*')
+          .or('category.eq.commission,category.eq.payment,setting_key.ilike.%commission%,setting_key.ilike.%rate%')
+          .order('created_at', { ascending: false })
+          .limit(200);
+
+        // Apply date range filter
+        if (filters.dateRange !== 'all') {
+          const now = new Date();
+          let startDate = new Date();
+          
+          switch (filters.dateRange) {
+            case 'today':
+              startDate.setHours(0, 0, 0, 0);
+              break;
+            case 'week':
+              startDate.setDate(now.getDate() - 7);
+              break;
+            case 'month':
+              startDate.setMonth(now.getMonth() - 1);
+              break;
+            case 'quarter':
+              startDate.setMonth(now.getMonth() - 3);
+              break;
+            default:
+              break;
+          }
+          
+          if (filters.dateRange !== 'all') {
+            query = query.gte('created_at', startDate.toISOString());
+          }
+        }
+
+        const { data, error: fetchError } = await query;
+
+        if (fetchError) {
+          throw fetchError;
+        }
+
+        // Fetch admin user profiles
+        const userIds = [...new Set((data || []).map(entry => entry.changed_by).filter(Boolean))];
+        let userProfilesMap = {};
+        
+        if (userIds.length > 0) {
+          const { data: profilesData } = await supabase
+            .from('profiles')
+            .select('id, first_name, last_name, email')
+            .in('id', userIds);
+          
+          if (profilesData) {
+            profilesData.forEach(profile => {
+              userProfilesMap[profile.id] = profile;
+            });
+          }
+        }
+
+        // Transform data to match component format
+        const transformedChanges = (data || []).map((entry) => {
+          const user = userProfilesMap[entry.changed_by];
+          const adminName = user 
+            ? `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email || 'Unknown'
+            : entry.changed_by_name || 'Unknown Admin';
+          const adminEmail = user?.email || entry.changed_by_email || 'N/A';
+
+          // Parse old and new values
+          let oldRate = null;
+          let newRate = null;
+          
+          try {
+            const oldValue = typeof entry.old_value === 'string' 
+              ? JSON.parse(entry.old_value) 
+              : entry.old_value;
+            const newValue = typeof entry.new_value === 'string' 
+              ? JSON.parse(entry.new_value) 
+              : entry.new_value;
+
+            // Extract rate values based on setting type
+            if (typeof oldValue === 'number') {
+              oldRate = oldValue;
+            } else if (oldValue && typeof oldValue === 'object') {
+              oldRate = oldValue.value || oldValue.rate || oldValue.percentage || null;
+            }
+
+            if (typeof newValue === 'number') {
+              newRate = newValue;
+            } else if (newValue && typeof newValue === 'object') {
+              newRate = newValue.value || newValue.rate || newValue.percentage || null;
+            }
+
+            // If still null, try to parse as percentage strings
+            if (oldRate === null && typeof oldValue === 'string' && oldValue.includes('%')) {
+              oldRate = parseFloat(oldValue.replace('%', ''));
+            }
+            if (newRate === null && typeof newValue === 'string' && newValue.includes('%')) {
+              newRate = parseFloat(newValue.replace('%', ''));
+            }
+          } catch (e) {
+            // If parsing fails, try direct numeric conversion
+            if (typeof entry.old_value === 'number') oldRate = entry.old_value;
+            if (typeof entry.new_value === 'number') newRate = entry.new_value;
+          }
+
+          // Determine change type based on setting_key
+          let changeType = 'default-rate';
+          let category = null;
+          
+          if (entry.setting_key?.includes('seeker') || entry.setting_key?.includes('guest')) {
+            changeType = 'category-rate';
+            category = 'seeker';
+          } else if (entry.setting_key?.includes('partner') || entry.setting_key?.includes('host')) {
+            changeType = 'category-rate';
+            category = 'partner';
+          } else if (entry.setting_key?.includes('promotional') || entry.setting_key?.includes('promo')) {
+            changeType = 'promotional-rate';
+          } else if (entry.setting_key?.includes('bulk') || entry.setting_key?.includes('all')) {
+            changeType = 'bulk-adjustment';
+          }
+
+          return {
+            id: entry.id,
+            timestamp: entry.created_at,
+            admin: {
+              name: adminName,
+              email: adminEmail
+            },
+            changeType,
+            category,
+            oldRate: oldRate !== null ? (typeof oldRate === 'number' ? oldRate : parseFloat(oldRate)) : null,
+            newRate: newRate !== null ? (typeof newRate === 'number' ? newRate : parseFloat(newRate)) : null,
+            reason: entry.change_reason || `Changed ${entry.setting_key} in ${entry.category || 'settings'}`,
+            settingKey: entry.setting_key,
+            impactLevel: entry.impact_level || 'medium'
+          };
+        });
+
+        setRateChanges(transformedChanges);
+      } catch (err) {
+        console.error('Error fetching rate change history:', err);
+        setError(err.message);
+        setRateChanges([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchRateChangeHistory();
+  }, [isAdmin, filters.dateRange]);
+
+  // Mock rate change history data (fallback)
+  const mockRateChanges = [
     {
       id: 1,
       timestamp: '2025-01-15T10:30:00Z',
       admin: {
         name: 'John Smith',
-        email: 'john.smith@spacio.com'
+        email: 'john.smith@spacel.com'
       },
       changeType: 'category-rate',
       category: 'event-space',
@@ -31,7 +200,7 @@ const RateChangeHistory = () => {
       timestamp: '2025-01-12T14:15:00Z',
       admin: {
         name: 'Sarah Johnson',
-        email: 'sarah.johnson@spacio.com'
+        email: 'sarah.johnson@spacel.com'
       },
       changeType: 'default-rate',
       category: null,
@@ -44,7 +213,7 @@ const RateChangeHistory = () => {
       timestamp: '2025-01-10T09:45:00Z',
       admin: {
         name: 'Michael Chen',
-        email: 'michael.chen@spacio.com'
+        email: 'michael.chen@spacel.com'
       },
       changeType: 'promotional-rate',
       category: 'coworking',
@@ -57,7 +226,7 @@ const RateChangeHistory = () => {
       timestamp: '2025-01-08T16:20:00Z',
       admin: {
         name: 'Emily Rodriguez',
-        email: 'emily.rodriguez@spacio.com'
+        email: 'emily.rodriguez@spacel.com'
       },
       changeType: 'category-rate',
       category: 'office-space',
@@ -70,7 +239,7 @@ const RateChangeHistory = () => {
       timestamp: '2025-01-05T11:10:00Z',
       admin: {
         name: 'David Park',
-        email: 'david.park@spacio.com'
+        email: 'david.park@spacel.com'
       },
       changeType: 'bulk-adjustment',
       category: 'all',
@@ -123,6 +292,8 @@ const RateChangeHistory = () => {
       'coworking': 'Coworking Space',
       'event-space': 'Event Space',
       'storage': 'Storage Space',
+      'seeker': 'Seeker Commission',
+      'partner': 'Partner Commission',
       'all': 'All Categories'
     };
     return categoryLabels[category] || category;
@@ -138,15 +309,60 @@ const RateChangeHistory = () => {
     });
   };
 
-  const filteredChanges = rateChanges.filter(change => {
-    if (filters.admin && !change.admin.name.toLowerCase().includes(filters.admin.toLowerCase())) {
-      return false;
-    }
-    if (filters.changeType !== 'all' && change.changeType !== filters.changeType) {
-      return false;
-    }
-    return true;
-  });
+  const filteredChanges = useMemo(() => {
+    return rateChanges.filter(change => {
+      if (filters.admin && !change.admin.name.toLowerCase().includes(filters.admin.toLowerCase())) {
+        return false;
+      }
+      if (filters.changeType !== 'all' && change.changeType !== filters.changeType) {
+        return false;
+      }
+      return true;
+    });
+  }, [rateChanges, filters.admin, filters.changeType]);
+
+  const handleExport = () => {
+    // Export functionality
+    const csvContent = [
+      ['Date', 'Admin', 'Change Type', 'Category', 'Old Rate', 'New Rate', 'Reason'].join(','),
+      ...filteredChanges.map(change => [
+        new Date(change.timestamp).toLocaleString(),
+        change.admin.name,
+        getChangeTypeLabel(change.changeType),
+        change.category || 'N/A',
+        change.oldRate !== null ? `${change.oldRate}%` : 'N/A',
+        change.newRate !== null ? `${change.newRate}%` : 'N/A',
+        change.reason
+      ].join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `rate-change-history-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  if (loading) {
+    return (
+      <div className="bg-card rounded-lg border border-border p-6">
+        <LoadingState message="Loading rate change history..." />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-card rounded-lg border border-border p-6">
+        <div className="text-center py-8">
+          <Icon name="AlertCircle" size={32} className="text-destructive mx-auto mb-2" />
+          <p className="text-muted-foreground">Error loading rate change history: {error}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-card rounded-lg border border-border p-6">
@@ -156,6 +372,8 @@ const RateChangeHistory = () => {
           variant="outline"
           iconName="Download"
           iconPosition="left"
+          onClick={handleExport}
+          disabled={filteredChanges.length === 0}
         >
           Export History
         </Button>

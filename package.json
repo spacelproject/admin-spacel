@@ -1,5 +1,5 @@
 {
-    "name": "spacio-admin-dashboard",
+    "name": "spacel-admin-dashboard",
     "private": true,
     "version": "0.0.0",
     "scripts": {
@@ -12,6 +12,9 @@
         "@dhiwise/component-tagger": "^1.0.10",
         "@radix-ui/react-slot": "^1.2.3",
         "@reduxjs/toolkit": "^2.6.1",
+        "@supabase/auth-ui-react": "^0.4.7",
+        "@supabase/auth-ui-shared": "^0.1.8",
+        "@supabase/supabase-js": "^2.75.1",
         "@tailwindcss/forms": "^0.5.7",
         "axios": "^1.8.4",
         "class-variance-authority": "^0.7.1",
@@ -21,6 +24,8 @@
         "dotenv": "^16.0.1",
         "file-saver": "^2.0.5",
         "framer-motion": "^10.16.4",
+        "jspdf": "^3.0.4",
+        "jspdf-autotable": "^5.0.2",
         "lucide-react": "^0.484.0",
         "react": "^18.2.0",
         "react-dom": "^18.2.0",
@@ -31,7 +36,8 @@
         "recharts": "^2.15.2",
         "redux": "^5.0.1",
         "tailwind-merge": "^3.3.1",
-        "vite-tsconfig-paths": "^5.1.4"
+        "vite-tsconfig-paths": "^5.1.4",
+        "xlsx": "^0.18.5"
     },
     "devDependencies": {
         "@types/react": "^18.2.15",

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import Input from '../../../components/ui/Input';
@@ -6,122 +6,74 @@ import Select from '../../../components/ui/Select';
 import ContentEditor from './ContentEditor';
 import ContentDetailsModal from './ContentDetailsModal';
 import ActionDropdown from './ActionDropdown';
+import useDocumentation from '../../../hooks/useDocumentation';
+import LoadingState from '../../../components/ui/LoadingState';
 
 const DocumentationTab = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
-  const [expandedSections, setExpandedSections] = useState(['getting-started']);
+  const [expandedSections, setExpandedSections] = useState([]);
   const [showEditor, setShowEditor] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [detailsModal, setDetailsModal] = useState({ isOpen: false, item: null });
 
-  const documentation = [
-    {
-      id: 'getting-started',
-      title: 'Getting Started',
-      type: 'section',
-      children: [
-        {
-          id: 1,
-          title: 'How to Create an Account',
-          category: 'user_guide',
-          status: 'published',
-          lastUpdated: '2025-01-15T10:00:00Z',
-          author: 'Support Team',
-          views: 2450,
-          version: '2.1',
-          content: `Welcome to SPACIO! Creating an account is quick and easy.\n\nFollow these simple steps to get started:\n1. Click the "Sign Up" button\n2. Enter your email and password\n3. Verify your email address\n4. Complete your profile`
-        },
-        {
-          id: 2,
-          title: 'Platform Overview',
-          category: 'user_guide',
-          status: 'published',
-          lastUpdated: '2025-01-12T14:30:00Z',
-          author: 'Product Team',
-          views: 1890,
-          version: '1.5',
-          content: `SPACIO is a comprehensive space booking platform that connects hosts with guests looking for unique spaces.\n\nKey features include:\n- Easy space discovery\n- Secure booking system\n- Integrated messaging\n- Payment processing`
-        }
-      ]
-    },
-    {
-      id: 'host-guide',
-      title: 'Host Guide',
-      type: 'section',
-      children: [
-        {
-          id: 3,
-          title: 'Listing Your Space',
-          category: 'host_guide',
-          status: 'published',
-          lastUpdated: '2025-01-14T09:15:00Z',
-          author: 'Host Success Team',
-          views: 3200,
-          version: '3.0',
-          content: `Learn how to create compelling space listings that attract guests.\n\nThis comprehensive guide covers:\n- Photography best practices\n- Writing effective descriptions\n- Setting competitive pricing\n- Managing availability`
-        },
-        {
-          id: 4,
-          title: 'Managing Bookings',
-          category: 'host_guide',
-          status: 'draft',
-          lastUpdated: '2025-01-16T11:45:00Z',
-          author: 'Host Success Team',
-          views: 0,
-          version: '1.0',
-          content: `Efficiently manage your bookings and provide excellent guest experiences.\n\nTopics covered:\n- Accepting and declining requests\n- Communication with guests\n- Check-in procedures\n- Handling cancellations`
-        }
-      ]
-    },
-    {
-      id: 'guest-guide',
-      title: 'Guest Guide',
-      type: 'section',
-      children: [
-        {
-          id: 5,
-          title: 'Finding the Perfect Space',
-          category: 'guest_guide',
-          status: 'published',
-          lastUpdated: '2025-01-13T16:20:00Z',
-          author: 'Customer Success Team',
-          views: 1650,
-          version: '2.3',
-          content: `Discover how to find and book the perfect space for your needs.\n\nSearch tips:\n- Use filters effectively\n- Read reviews carefully\n- Check location and amenities\n- Compare pricing options`
-        },
-        {
-          id: 6,
-          title: 'Booking Process',
-          category: 'guest_guide',
-          status: 'published',
-          lastUpdated: '2025-01-11T13:10:00Z',
-          author: 'Customer Success Team',
-          views: 2100,
-          version: '1.8',
-          content: `Step-by-step guide to booking your space.\n\nBooking steps:\n1. Select your dates\n2. Review space details\n3. Send booking request\n4. Complete payment\n5. Receive confirmation`
-        }
-      ]
-    },
-    {
-      id: 'policies',
-      title: 'Policies & Guidelines',
-      type: 'section',
-      children: [
-        {
-          id: 7,
-          title: 'Community Guidelines',
-          category: 'policies',
-          status: 'published',
-          lastUpdated: '2025-01-10T08:30:00Z',
-          author: 'Legal Team',
-          views: 980,
-          version: '4.2',
-          content: `Our community guidelines ensure a safe and respectful environment for all users.\n\nKey principles:\n- Respect for all community members\n- Honest and accurate listings\n- Prompt communication\n- Property care and cleanliness`
-        }
-      ]
+  // Use real data from database
+  const {
+    documentation: docsData,
+    loading,
+    error,
+    createDocumentation,
+    updateDocumentation,
+    deleteDocumentation,
+    publishDocumentation,
+    getHierarchicalDocumentation
+  } = useDocumentation();
+
+  // Transform documentation into hierarchical structure
+  const documentation = useMemo(() => {
+    if (!docsData || docsData.length === 0) return [];
+    
+    // Group by category/section
+    const sectionsMap = {};
+    const categories = ['getting-started', 'host-guide', 'guest-guide', 'policies'];
+    
+    categories.forEach(cat => {
+      sectionsMap[cat] = {
+        id: cat,
+        title: cat === 'getting-started' ? 'Getting Started' :
+              cat === 'host-guide' ? 'Host Guide' :
+              cat === 'guest-guide' ? 'Guest Guide' :
+              'Policies & Guidelines',
+        type: 'section',
+        children: []
+      };
+    });
+
+    // Add documents to their sections
+    docsData.forEach(doc => {
+      const sectionId = doc.category === 'user_guide' ? 'getting-started' :
+                        doc.category === 'host_guide' ? 'host-guide' :
+                        doc.category === 'guest_guide' ? 'guest-guide' :
+                        doc.category === 'policies' ? 'policies' : 'getting-started';
+      
+      if (sectionsMap[sectionId]) {
+        sectionsMap[sectionId].children.push({
+          ...doc,
+          views: doc.viewCount || 0,
+          version: doc.metadata?.version || '1.0',
+          lastUpdated: doc.lastUpdated || doc.updatedAt
+        });
+      }
+    });
+
+    // Filter out empty sections and expand first section by default
+    const sections = Object.values(sectionsMap).filter(s => s.children.length > 0);
+    if (sections.length > 0 && expandedSections.length === 0) {
+      setExpandedSections([sections[0].id]);
     }
-  ];
+
+    return sections;
+  }, [docsData, expandedSections]);
 
   const categoryOptions = [
     { value: 'all', label: 'All Categories' },
@@ -167,17 +119,29 @@ const DocumentationTab = () => {
     setShowEditor(true);
   };
 
-  const handlePublish = (item) => {
-    console.log('Publishing documentation:', item?.id);
+  const handlePublish = async (item) => {
+    try {
+      await publishDocumentation(item.id);
+    } catch (error) {
+      console.error('Error publishing documentation:', error);
+    }
   };
 
-  const handleArchive = (item) => {
-    console.log('Archiving documentation:', item?.id);
+  const handleArchive = async (item) => {
+    try {
+      await updateDocumentation(item.id, { status: 'archived' });
+    } catch (error) {
+      console.error('Error archiving documentation:', error);
+    }
   };
 
-  const handleDelete = (item) => {
+  const handleDelete = async (item) => {
     if (window.confirm(`Are you sure you want to delete "${item?.title}"?`)) {
-      console.log('Deleting documentation:', item?.id);
+      try {
+        await deleteDocumentation(item.id);
+      } catch (error) {
+        console.error('Error deleting documentation:', error);
+      }
     }
   };
 
@@ -210,7 +174,7 @@ const DocumentationTab = () => {
 
   const getAllDocuments = () => {
     return documentation?.reduce((acc, section) => {
-      return [...acc, ...section?.children];
+      return [...acc, ...(section?.children || [])];
     }, []);
   };
 
@@ -221,15 +185,82 @@ const DocumentationTab = () => {
     return matchesSearch && matchesCategory;
   });
 
+  // Show loading state
+  if (loading) {
+    return (
+      <div className="p-6">
+        <LoadingState message="Fetching documentation..." />
+      </div>
+    );
+  }
+
+  // Show error state
+  if (error) {
+    return (
+      <div className="p-6">
+        <div className="text-center py-12">
+          <Icon name="AlertCircle" size={48} className="text-error mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-foreground mb-2">Error Loading Documentation</h3>
+          <p className="text-muted-foreground mb-4">{error}</p>
+          <Button onClick={() => window.location.reload()}>
+            Try Again
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (showEditor) {
     return (
       <ContentEditor
         item={editingItem}
         type="documentation"
-        onClose={() => setShowEditor(false)}
-        onSave={(data) => {
-          console.log('Saving documentation:', data);
+        onClose={() => {
           setShowEditor(false);
+          setEditingItem(null);
+        }}
+        onSave={async (data) => {
+          try {
+            console.log('Saving documentation:', data);
+            
+            if (editingItem) {
+              // Update existing documentation
+              await updateDocumentation(editingItem.id, {
+                title: data.title,
+                content: data.content,
+                status: data.status,
+                category: data.category || 'user_guide',
+                tags: data.tags || [],
+                metadata: {
+                  seoTitle: data.seoTitle,
+                  seoDescription: data.seoDescription,
+                  enableNotifications: data.enableNotifications,
+                  version: editingItem.metadata?.version || '1.0'
+                }
+              });
+            } else {
+              // Create new documentation
+              await createDocumentation({
+                title: data.title,
+                content: data.content,
+                status: data.status,
+                category: data.category || 'user_guide',
+                tags: data.tags || [],
+                metadata: {
+                  seoTitle: data.seoTitle,
+                  seoDescription: data.seoDescription,
+                  enableNotifications: data.enableNotifications,
+                  version: '1.0'
+                }
+              });
+            }
+            
+            setShowEditor(false);
+            setEditingItem(null);
+          } catch (error) {
+            console.error('Error saving documentation:', error);
+            alert(`Error saving documentation: ${error.message || 'Unknown error'}`);
+          }
         }}
       />
     );

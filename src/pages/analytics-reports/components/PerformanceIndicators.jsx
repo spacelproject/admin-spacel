@@ -5,15 +5,15 @@ const PerformanceIndicators = ({ indicators }) => {
   const getIndicatorColor = (status) => {
     switch (status) {
       case 'excellent':
-        return 'text-green-600 bg-green-50';
+        return { icon: 'text-green-600', bg: 'bg-green-50', progress: 'bg-green-500' };
       case 'good':
-        return 'text-blue-600 bg-blue-50';
+        return { icon: 'text-blue-600', bg: 'bg-blue-50', progress: 'bg-blue-500' };
       case 'average':
-        return 'text-yellow-600 bg-yellow-50';
+        return { icon: 'text-yellow-600', bg: 'bg-yellow-50', progress: 'bg-yellow-500' };
       case 'poor':
-        return 'text-red-600 bg-red-50';
+        return { icon: 'text-red-600', bg: 'bg-red-50', progress: 'bg-red-500' };
       default:
-        return 'text-gray-600 bg-gray-50';
+        return { icon: 'text-gray-600', bg: 'bg-gray-50', progress: 'bg-gray-500' };
     }
   };
 
@@ -33,57 +33,75 @@ const PerformanceIndicators = ({ indicators }) => {
   };
 
   return (
-    <div className="bg-card border border-border rounded-lg p-6 mb-6">
+    <div className="mb-6">
       <div className="flex items-center space-x-2 mb-6">
-        <Icon name="Target" size={24} className="text-primary" />
-        <h3 className="text-lg font-semibold text-foreground">Performance Indicators</h3>
+        <div className="p-2 bg-blue-50 rounded-lg">
+          <Icon name="Target" size={20} className="text-blue-600" />
+        </div>
+        <h3 className="text-lg font-semibold text-gray-900 tracking-tight">Performance Indicators</h3>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {indicators.map((indicator) => (
-          <div key={indicator.id} className="border border-border rounded-lg p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h4 className="text-sm font-medium text-foreground">{indicator.name}</h4>
-              <div className={`p-2 rounded-full ${getIndicatorColor(indicator.status)}`}>
-                <Icon 
-                  name={getStatusIcon(indicator.status)} 
-                  size={16} 
-                />
-              </div>
-            </div>
-            
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-2xl font-bold text-foreground">
-                  {indicator.value}
-                </span>
-                <span className="text-sm text-muted-foreground">
-                  {indicator.unit}
-                </span>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {indicators.map((indicator) => {
+          const colors = getIndicatorColor(indicator.status);
+          
+          return (
+            <div 
+              key={indicator.id} 
+              className="bg-white border border-gray-200 rounded-lg p-5 card-shadow hover:shadow-md transition-shadow duration-200"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="text-sm font-semibold text-gray-900">{indicator.name}</h4>
+                <div className={`p-2 rounded-lg ${colors.bg}`}>
+                  <Icon 
+                    name={getStatusIcon(indicator.status)} 
+                    size={18} 
+                    className={colors.icon}
+                  />
+                </div>
               </div>
               
-              <div className="w-full bg-muted rounded-full h-2">
-                <div 
-                  className={`h-2 rounded-full transition-all duration-300 ${
-                    indicator.status === 'excellent' ? 'bg-green-500' :
-                    indicator.status === 'good' ? 'bg-blue-500' :
-                    indicator.status === 'average'? 'bg-yellow-500' : 'bg-red-500'
-                  }`}
-                  style={{ width: `${indicator.progress}%` }}
-                />
-              </div>
-              
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>Target: {indicator.target}</span>
-                <span className={`font-medium ${
-                  indicator.change >= 0 ? 'text-green-600' : 'text-red-600'
-                }`}>
-                  {indicator.change >= 0 ? '+' : ''}{indicator.change}%
-                </span>
+              <div className="space-y-3">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-3xl font-bold text-gray-900">
+                    {indicator.value}
+                  </span>
+                  {indicator.unit && (
+                    <span className="text-sm font-medium text-gray-500 ml-2">
+                      {indicator.unit}
+                    </span>
+                  )}
+                </div>
+                
+                <div className="space-y-2">
+                  <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
+                    <div 
+                      className={`h-full rounded-full transition-all duration-500 ${colors.progress}`}
+                      style={{ width: `${Math.min(indicator.progress, 100)}%` }}
+                    />
+                  </div>
+                  
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-500 font-medium">
+                      Target: <span className="text-gray-700">{indicator.target}</span>
+                    </span>
+                    <div className={`flex items-center space-x-1 font-semibold ${
+                      indicator.change >= 0 ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      <Icon 
+                        name={indicator.change >= 0 ? 'TrendingUp' : 'TrendingDown'} 
+                        size={12}
+                      />
+                      <span>
+                        {indicator.change >= 0 ? '+' : ''}{indicator.change}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

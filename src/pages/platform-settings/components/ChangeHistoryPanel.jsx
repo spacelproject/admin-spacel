@@ -1,91 +1,21 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import Button from '../../../components/ui/Button';
 import Select from '../../../components/ui/Select';
 import Icon from '../../../components/AppIcon';
 import Image from '../../../components/AppImage';
+import LoadingState from '../../../components/ui/LoadingState';
+import ErrorState from '../../../components/ui/ErrorState';
+import useSettingsHistory from '../../../hooks/useSettingsHistory';
 
 const ChangeHistoryPanel = ({ isOpen, onClose }) => {
   const [filterBy, setFilterBy] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
 
-  // Mock change history data
-  const changeHistory = [
-    {
-      id: 1,
-      setting: "Platform Fee Percentage",
-      category: "Payment Configuration",
-      oldValue: "4.5%",
-      newValue: "5.0%",
-      changedBy: {
-        name: "Sarah Johnson",
-        email: "sarah.johnson@spacio.com",
-        avatar: "https://images.unsplash.com/photo-1494790108755-2616b9c5e8b1?w=150"
-      },
-      timestamp: new Date(Date.now() - 3600000), // 1 hour ago
-      impact: "high",
-      reason: "Adjusted to match market standards and improve revenue"
-    },
-    {
-      id: 2,
-      setting: "Session Timeout",
-      category: "Security Policies",
-      oldValue: "60 minutes",
-      newValue: "30 minutes",
-      changedBy: {
-        name: "Michael Chen",
-        email: "michael.chen@spacio.com",
-        avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150"
-      },
-      timestamp: new Date(Date.now() - 7200000), // 2 hours ago
-      impact: "medium",
-      reason: "Enhanced security measure to reduce session hijacking risks"
-    },
-    {
-      id: 3,
-      setting: "Email Notifications",
-      category: "Notification Settings",
-      oldValue: "Disabled",
-      newValue: "Enabled",
-      changedBy: {
-        name: "Emily Rodriguez",
-        email: "emily.rodriguez@spacio.com",
-        avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150"
-      },
-      timestamp: new Date(Date.now() - 86400000), // 1 day ago
-      impact: "low",
-      reason: "Re-enabled after resolving email delivery issues"
-    },
-    {
-      id: 4,
-      setting: "Maintenance Mode",
-      category: "General Settings",
-      oldValue: "Enabled",
-      newValue: "Disabled",
-      changedBy: {
-        name: "David Kim",
-        email: "david.kim@spacio.com",
-        avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150"
-      },
-      timestamp: new Date(Date.now() - 172800000), // 2 days ago
-      impact: "critical",
-      reason: "Completed system maintenance and restored normal operations"
-    },
-    {
-      id: 5,
-      setting: "Two-Factor Authentication",
-      category: "Security Policies",
-      oldValue: "Optional",
-      newValue: "Required for Admins",
-      changedBy: {
-        name: "Sarah Johnson",
-        email: "sarah.johnson@spacio.com",
-        avatar: "https://images.unsplash.com/photo-1494790108755-2616b9c5e8b1?w=150"
-      },
-      timestamp: new Date(Date.now() - 259200000), // 3 days ago
-      impact: "high",
-      reason: "Strengthened admin account security following security audit"
-    }
-  ];
+  const filters = useMemo(() => ({
+    category: filterBy === 'all' ? undefined : filterBy
+  }), [filterBy]);
+
+  const { history, loading, error, refetch } = useSettingsHistory(filters);
 
   const filterOptions = [
     { value: 'all', label: 'All Changes' },
@@ -121,9 +51,34 @@ const ChangeHistoryPanel = ({ isOpen, onClose }) => {
     }
   };
 
+  const formatValue = (value, settingType) => {
+    if (value === null || value === undefined) return 'N/A';
+    
+    if (settingType === 'boolean') {
+      return value ? 'Enabled' : 'Disabled';
+    }
+    
+    if (settingType === 'number') {
+      return value.toString();
+    }
+    
+    if (settingType === 'json') {
+      return JSON.stringify(value);
+    }
+    
+    if (Array.isArray(value)) {
+      return value.join(', ');
+    }
+    
+    return String(value);
+  };
+
   const formatTimestamp = (timestamp) => {
+    if (!timestamp) return 'Unknown';
+    
     const now = new Date();
-    const diff = now - timestamp;
+    const date = new Date(timestamp);
+    const diff = now - date;
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const days = Math.floor(hours / 24);
 
@@ -132,16 +87,60 @@ const ChangeHistoryPanel = ({ isOpen, onClose }) => {
     } else if (hours > 0) {
       return `${hours} hour${hours > 1 ? 's' : ''} ago`;
     } else {
+      const minutes = Math.floor(diff / (1000 * 60));
+      if (minutes > 0) {
+        return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
+      }
       return 'Just now';
     }
   };
 
-  const handleRollback = (changeId) => {
-    console.log('Rolling back change:', changeId);
-  };
+  const sortedHistory = useMemo(() => {
+    if (!history || history.length === 0) return [];
 
-  const handleExportHistory = () => {
-    console.log('Exporting change history...');
+    const sorted = [...history];
+
+    switch (sortBy) {
+      case 'oldest':
+        return sorted.sort((a, b) => a.timestamp - b.timestamp);
+      case 'impact':
+        const impactOrder = { critical: 4, high: 3, medium: 2, low: 1 };
+        return sorted.sort((a, b) => {
+          const aImpact = impactOrder[a.impact] || 0;
+          const bImpact = impactOrder[b.impact] || 0;
+          if (aImpact !== bImpact) {
+            return bImpact - aImpact;
+          }
+          return b.timestamp - a.timestamp;
+        });
+      case 'newest':
+      default:
+        return sorted.sort((a, b) => b.timestamp - a.timestamp);
+    }
+  }, [history, sortBy]);
+
+  const handleExportHistory = async () => {
+    try {
+      const { exportData, exportToPDF } = await import('../../../utils/exportUtils');
+      
+      // Prepare history data for export
+      const exportDataArray = sortedHistory.map(change => ({
+        'Setting': change.setting || 'N/A',
+        'Category': change.category || 'N/A',
+        'Old Value': formatValue(change.oldValue, change.settingType),
+        'New Value': formatValue(change.newValue, change.settingType),
+        'Changed By': change.changedBy?.name || 'N/A',
+        'Changed By Email': change.changedBy?.email || 'N/A',
+        'Impact': change.impact || 'N/A',
+        'Reason': change.reason || 'N/A',
+        'Timestamp': change.timestamp ? new Date(change.timestamp).toLocaleString() : 'N/A'
+      }));
+      
+      const fileName = `settings-history-${new Date().toISOString().split('T')[0]}`;
+      await exportData(exportDataArray, fileName, 'csv');
+    } catch (error) {
+      console.error('Error exporting history:', error);
+    }
   };
 
   if (!isOpen) return null;
@@ -193,6 +192,7 @@ const ChangeHistoryPanel = ({ isOpen, onClose }) => {
               onClick={handleExportHistory}
               iconName="Download"
               iconPosition="left"
+              disabled={!sortedHistory || sortedHistory.length === 0}
             >
               Export History
             </Button>
@@ -201,8 +201,18 @@ const ChangeHistoryPanel = ({ isOpen, onClose }) => {
 
         {/* History List */}
         <div className="flex-1 overflow-y-auto p-6">
+          {loading ? (
+            <LoadingState message="Loading change history..." />
+          ) : error ? (
+            <ErrorState error={error} onRetry={refetch} />
+          ) : sortedHistory.length === 0 ? (
+            <div className="text-center py-12">
+              <Icon name="History" size={48} className="text-muted-foreground mx-auto mb-4" />
+              <p className="text-muted-foreground">No change history found</p>
+            </div>
+          ) : (
           <div className="space-y-4">
-            {changeHistory.map((change) => (
+              {sortedHistory.map((change) => (
               <div key={change.id} className="bg-muted/30 rounded-lg border border-border p-4">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
@@ -220,25 +230,23 @@ const ChangeHistoryPanel = ({ isOpen, onClose }) => {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
                       <div>
                         <p className="text-xs text-muted-foreground mb-1">Previous Value</p>
-                        <p className="text-sm font-mono bg-destructive/10 text-destructive px-2 py-1 rounded">
-                          {change.oldValue}
+                          <p className="text-sm font-mono bg-destructive/10 text-destructive px-2 py-1 rounded break-all">
+                            {formatValue(change.oldValue, change.settingType)}
                         </p>
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground mb-1">New Value</p>
-                        <p className="text-sm font-mono bg-success/10 text-success px-2 py-1 rounded">
-                          {change.newValue}
+                          <p className="text-sm font-mono bg-success/10 text-success px-2 py-1 rounded break-all">
+                            {formatValue(change.newValue, change.settingType)}
                         </p>
                       </div>
                     </div>
                     
                     <div className="flex items-center space-x-4 text-sm text-muted-foreground mb-2">
                       <div className="flex items-center space-x-2">
-                        <Image
-                          src={change.changedBy.avatar}
-                          alt={change.changedBy.name}
-                          className="w-5 h-5 rounded-full object-cover"
-                        />
+                          <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center text-xs font-semibold text-primary">
+                            {change.changedBy.name.charAt(0).toUpperCase()}
+                          </div>
                         <span>{change.changedBy.name}</span>
                       </div>
                       <div className="flex items-center space-x-1">
@@ -247,39 +255,27 @@ const ChangeHistoryPanel = ({ isOpen, onClose }) => {
                       </div>
                     </div>
                     
+                      {change.reason && (
                     <p className="text-sm text-muted-foreground italic">
                       "{change.reason}"
                     </p>
-                  </div>
-                  
-                  <div className="flex items-center space-x-2 ml-4">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleRollback(change.id)}
-                      iconName="RotateCcw"
-                      iconPosition="left"
-                    >
-                      Rollback
-                    </Button>
+                      )}
                   </div>
                 </div>
               </div>
             ))}
           </div>
+          )}
         </div>
 
         {/* Footer */}
         <div className="p-6 border-t border-border">
           <div className="flex items-center justify-between">
             <p className="text-sm text-muted-foreground">
-              Showing {changeHistory.length} recent changes
+              Showing {sortedHistory.length} {sortedHistory.length === 1 ? 'change' : 'changes'}
             </p>
             
             <div className="flex items-center space-x-2">
-              <Button variant="outline" size="sm">
-                Load More
-              </Button>
               <Button variant="outline" onClick={onClose}>
                 Close
               </Button>

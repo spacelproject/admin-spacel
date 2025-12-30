@@ -1,15 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Button from '../../../components/ui/Button';
 import Select from '../../../components/ui/Select';
 import { Checkbox } from '../../../components/ui/Checkbox';
 import Icon from '../../../components/AppIcon';
 
-const ReportGenerator = ({ onGenerateReport }) => {
+const ReportGenerator = ({ onGenerateReport, selectedDateRange, customDateRange }) => {
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [selectedMetrics, setSelectedMetrics] = useState([]);
   const [reportFormat, setReportFormat] = useState('pdf');
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
   const [scheduleFrequency, setScheduleFrequency] = useState('weekly');
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const reportTemplates = [
     { value: 'financial', label: 'Financial Summary' },
@@ -48,18 +49,46 @@ const ReportGenerator = ({ onGenerateReport }) => {
     );
   };
 
-  const handleGenerateReport = () => {
-    const reportConfig = {
-      template: selectedTemplate,
-      metrics: selectedMetrics,
-      format: reportFormat,
-      schedule: scheduleEnabled ? {
-        enabled: true,
-        frequency: scheduleFrequency
-      } : { enabled: false }
-    };
+  // Auto-select metrics when template changes (for non-custom templates)
+  useEffect(() => {
+    if (selectedTemplate && selectedTemplate !== 'custom') {
+      // Clear custom metrics when a preset template is selected
+      setSelectedMetrics([]);
+    }
+  }, [selectedTemplate]);
+
+  const handleGenerateReport = async () => {
+    if (!selectedTemplate) {
+      console.warn('⚠️ Please select a report template');
+      return;
+    }
+
+    if (selectedTemplate === 'custom' && selectedMetrics.length === 0) {
+      console.warn('⚠️ Please select at least one metric for custom report');
+      return;
+    }
+
+    setIsGenerating(true);
     
-    onGenerateReport(reportConfig);
+    try {
+      const reportConfig = {
+        template: selectedTemplate,
+        metrics: selectedMetrics,
+        format: reportFormat,
+        schedule: scheduleEnabled ? {
+          enabled: true,
+          frequency: scheduleFrequency
+        } : { enabled: false },
+        dateRange: selectedDateRange,
+        customDateRange: selectedDateRange === 'custom' ? customDateRange : null
+      };
+      
+      await onGenerateReport(reportConfig);
+    } catch (error) {
+      console.error('❌ Error generating report:', error);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   return (
@@ -127,12 +156,12 @@ const ReportGenerator = ({ onGenerateReport }) => {
             <Button
               variant="default"
               onClick={handleGenerateReport}
-              disabled={!selectedTemplate}
-              iconName="Download"
+              disabled={!selectedTemplate || isGenerating || (selectedTemplate === 'custom' && selectedMetrics.length === 0)}
+              iconName={isGenerating ? "Loader2" : "Download"}
               iconPosition="left"
               fullWidth
             >
-              Generate Report
+              {isGenerating ? 'Generating Report...' : 'Generate Report'}
             </Button>
           </div>
         </div>

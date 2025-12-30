@@ -1,21 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 import Input from '../../../components/ui/Input';
 import Select from '../../../components/ui/Select';
 import { Checkbox } from '../../../components/ui/Checkbox';
 import Button from '../../../components/ui/Button';
 
-const SpaceFilters = ({ categories = [], onFiltersChange, onClearFilters }) => {
+const SpaceFilters = ({ categories = [], onFiltersChange, onClearFilters, currentFilters = {} }) => {
   const [filters, setFilters] = useState({
     search: '',
     category: '',
-    location: '',
     status: '',
     priceRange: { min: '', max: '' },
     amenities: []
   });
 
   const [isExpanded, setIsExpanded] = useState(false);
+
+  // Sync filters with currentFilters prop
+  useEffect(() => {
+    if (currentFilters && Object.keys(currentFilters).length > 0) {
+      setFilters(currentFilters);
+    }
+  }, [currentFilters]);
 
   // Generate category options from dynamic categories
   const categoryOptions = [
@@ -76,7 +82,6 @@ const SpaceFilters = ({ categories = [], onFiltersChange, onClearFilters }) => {
     const clearedFilters = {
       search: '',
       category: '',
-      location: '',
       status: '',
       priceRange: { min: '', max: '' },
       amenities: []
@@ -85,7 +90,7 @@ const SpaceFilters = ({ categories = [], onFiltersChange, onClearFilters }) => {
     onClearFilters();
   };
 
-  const hasActiveFilters = filters?.search || filters?.category || filters?.location || 
+  const hasActiveFilters = filters?.search || filters?.category || 
     filters?.status || filters?.priceRange?.min || filters?.priceRange?.max || 
     filters?.amenities?.length > 0;
 
@@ -95,7 +100,7 @@ const SpaceFilters = ({ categories = [], onFiltersChange, onClearFilters }) => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
         <Input
           type="search"
-          placeholder="Search spaces, hosts, locations..."
+          placeholder="Search spaces, hosts..."
           value={filters?.search}
           onChange={(e) => handleFilterChange('search', e?.target?.value)}
           className="w-full"
@@ -106,13 +111,6 @@ const SpaceFilters = ({ categories = [], onFiltersChange, onClearFilters }) => {
           value={filters?.category}
           onChange={(value) => handleFilterChange('category', value)}
           placeholder="Select category"
-        />
-        
-        <Input
-          type="text"
-          placeholder="Location"
-          value={filters?.location}
-          onChange={(e) => handleFilterChange('location', e?.target?.value)}
         />
         
         <Select

@@ -43,7 +43,7 @@ const BookingCard = ({ booking, onViewDetails, onStatusUpdate, onRefund }) => {
         {/* Header */}
         <div className="flex items-center justify-between">
           <span className="font-mono text-sm font-medium text-foreground">
-            {booking?.id}
+            {booking?.booking_reference}
           </span>
           <div className="flex items-center space-x-2">
             <BookingStatusBadge status={booking?.status} />
@@ -93,7 +93,7 @@ const BookingCard = ({ booking, onViewDetails, onStatusUpdate, onRefund }) => {
           </div>
           <div>
             <p className="text-muted-foreground">Total</p>
-            <p className="font-semibold text-foreground">${booking?.total}</p>
+            <p className="font-semibold text-foreground">A${(Math.round((booking?.total || 0) * 100) / 100).toFixed(2)}</p>
           </div>
         </div>
 
@@ -111,24 +111,21 @@ const BookingCard = ({ booking, onViewDetails, onStatusUpdate, onRefund }) => {
           </Button>
           <Button
             variant="ghost"
-            size="sm"
+            size="icon"
             onClick={() => setShowUpdateStatusModal(true)}
             iconName="RefreshCw"
-            size="icon"
           />
           <Button
             variant="ghost"
-            size="sm"
+            size="icon"
             onClick={() => setShowRefundModal(true)}
             iconName="DollarSign"
-            size="icon"
           />
           <Button
             variant="ghost"
-            size="sm"
+            size="icon"
             onClick={() => setShowMessageModal(true)}
             iconName="MessageCircle"
-            size="icon"
           />
         </div>
       </div>

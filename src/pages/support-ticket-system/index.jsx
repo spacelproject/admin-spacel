@@ -1,8 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import AdminSidebar from '../../components/ui/AdminSidebar';
 import BreadcrumbNavigation from '../../components/ui/BreadcrumbNavigation';
 import UserProfileDropdown from '../../components/ui/UserProfileDropdown';
+import NotificationBell from '../../components/NotificationBell';
 import Button from '../../components/ui/Button';
+import useSupportAgents from '../../hooks/useSupportAgents';
+import useSupportTickets from '../../hooks/useSupportTickets';
+import useSupportStats from '../../hooks/useSupportStats';
+import { supabase } from '../../lib/supabase';
+import { useToast } from '../../components/ui/Toast';
 
 import SupportStats from './components/SupportStats';
 import TicketFilters from './components/TicketFilters';
@@ -11,172 +17,104 @@ import TicketDetailModal from './components/TicketDetailModal';
 import AssignmentPanel from './components/AssignmentPanel';
 
 const SupportTicketSystem = () => {
+  const { showToast } = useToast();
+  const { supportAgents, loading: agentsLoading } = useSupportAgents();
+  const { tickets: allTickets, loading: ticketsLoading, refetch: refetchTickets } = useSupportTickets();
+  const { avgResponseTime } = useSupportStats(allTickets);
   const [selectedTickets, setSelectedTickets] = useState([]);
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('open'); // 'all', 'open', 'resolved'
   const [filters, setFilters] = useState({
     search: '',
     priority: 'all',
     category: 'all',
-    status: 'all',
     assignee: 'all',
     dateFrom: '',
     dateTo: ''
   });
 
-  // Mock data
-  const mockStats = {
-    total: 1247,
-    open: 89,
-    resolvedToday: 34,
-    avgResponseTime: '2.3h',
-    satisfactionRate: 94,
-    unassigned: 12
-  };
+  // Calculate stats from real data
+  const stats = useMemo(() => {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    const total = allTickets.length;
+    const open = allTickets.filter(t => ['open', 'pending', 'in-progress'].includes(t.status)).length;
+    const resolvedToday = allTickets.filter(t => 
+      t.status === 'resolved' && new Date(t.lastUpdated) >= todayStart
+    ).length;
+    const unassigned = allTickets.filter(t => !t.assignee).length;
 
-  const mockTicketCounts = {
-    urgent: 8,
-    high: 23,
-    medium: 45,
-    low: 13,
-    unassigned: 12
-  };
+    // Satisfaction rate - would come from ticket ratings if available
+    const satisfactionRate = 94
 
-  const mockSupportAgents = [
-    {
-      id: 'sarah-johnson',
-      name: 'Sarah Johnson',
-      role: 'Senior Support Specialist',
-      avatar: 'https://images.unsplash.com/photo-1494790108755-2616b9e0b434?w=150',
-      status: 'online',
-      activeTickets: 8,
-      avgResponseTime: '1.8h',
-      satisfactionRate: 96
-    },
-    {
-      id: 'mike-chen',
-      name: 'Mike Chen',
-      role: 'Technical Support Lead',
-      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
-      status: 'online',
-      activeTickets: 12,
-      avgResponseTime: '2.1h',
-      satisfactionRate: 94
-    },
-    {
-      id: 'emily-davis',
-      name: 'Emily Davis',
-      role: 'Customer Success Manager',
-      avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150',
-      status: 'busy',
-      activeTickets: 15,
-      avgResponseTime: '2.5h',
-      satisfactionRate: 98
-    },
-    {
-      id: 'alex-rodriguez',
-      name: 'Alex Rodriguez',
-      role: 'Support Specialist',
-      avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150',
-      status: 'online',
-      activeTickets: 6,
-      avgResponseTime: '1.9h',
-      satisfactionRate: 92
+    return {
+      total,
+      open,
+      resolvedToday,
+      avgResponseTime,
+      satisfactionRate,
+      unassigned
+    };
+  }, [allTickets, avgResponseTime]);
+
+  // Calculate ticket counts by priority for filters
+  const ticketCounts = useMemo(() => {
+    return {
+      urgent: allTickets.filter(t => t.priority === 'urgent').length,
+      high: allTickets.filter(t => t.priority === 'high').length,
+      medium: allTickets.filter(t => t.priority === 'medium').length,
+      low: allTickets.filter(t => t.priority === 'low').length,
+      unassigned: allTickets.filter(t => !t.assignee).length
+    };
+  }, [allTickets]);
+
+  // Normalize category variations to standard codes
+  const normalizeCategory = (categoryValue) => {
+    if (!categoryValue) return null
+    
+    const normalized = categoryValue.toLowerCase().trim()
+    
+    // Map variations to standard codes
+    const categoryMappings = {
+      'billing/payments': 'billing',
+      'billing & payments': 'billing',
+      'billing and payments': 'billing',
+      'payment': 'payment',
+      'payment processing': 'payment',
+      'account': 'account',
+      'account & access': 'account',
+      'account and access': 'account',
+      'booking': 'booking',
+      'booking issues': 'booking',
+      'space': 'space',
+      'space management': 'space',
+      'general': 'general',
+      'general inquiry': 'general',
+      'technical': 'technical',
+      'technical support': 'technical',
+      'refund': 'refund',
+      'refunds': 'refund',
+      'other': 'other'
     }
-  ];
+    
+    return categoryMappings[normalized] || normalized
+  }
 
-  const mockTickets = [
-    {
-      id: 'TK-2024-156',
-      user: {
-        name: 'Emma Thompson',
-        email: 'emma.thompson@email.com',
-        avatar: 'https://images.unsplash.com/photo-1494790108755-2616b9e0b434?w=150'
-      },
-      subject: 'Unable to complete booking payment',
-      category: 'billing',
-      priority: 'high',
-      status: 'open',
-      assignee: mockSupportAgents[0],
-      createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
-      lastUpdated: new Date(Date.now() - 30 * 60 * 1000),
-      description: `I'm trying to book a conference room for next week but the payment keeps failing. I've tried multiple credit cards and the issue persists. Can you please help me complete this booking?`
-    },
-    {
-      id: 'TK-2024-155',
-      user: {
-        name: 'James Wilson',
-        email: 'james.wilson@company.com',
-        avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150'
-      },
-      subject: 'Space listing not appearing in search results',
-      category: 'technical',
-      priority: 'medium',
-      status: 'in-progress',
-      assignee: mockSupportAgents[1],
-      createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000),
-      lastUpdated: new Date(Date.now() - 45 * 60 * 1000),
-      description: `I published my office space listing yesterday but it's not showing up in search results. I've checked all the settings and everything seems correct.`
-    },
-    {
-      id: 'TK-2024-154',
-      user: {
-        name: 'Sarah Martinez',
-        email: 'sarah.martinez@startup.io',
-        avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150'
-      },
-      subject: 'Refund request for cancelled booking',
-      category: 'billing',
-      priority: 'urgent',
-      status: 'pending',
-      assignee: mockSupportAgents[2],
-      createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
-      lastUpdated: new Date(Date.now() - 15 * 60 * 1000),
-      description: `I had to cancel my booking due to an emergency and was told I would receive a full refund. It's been 5 business days and I haven't received the refund yet.`
-    },
-    {
-      id: 'TK-2024-153',
-      user: {
-        name: 'Michael Brown',
-        email: 'michael.brown@email.com',
-        avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150'
-      },
-      subject: 'How to update space availability calendar?',
-      category: 'general',
-      priority: 'low',
-      status: 'resolved',
-      assignee: mockSupportAgents[3],
-      createdAt: new Date(Date.now() - 8 * 60 * 60 * 1000),
-      lastUpdated: new Date(Date.now() - 2 * 60 * 60 * 1000),
-      description: `I need help understanding how to update my space availability calendar. The interface is a bit confusing and I want to make sure I'm doing it correctly.`
-    },
-    {
-      id: 'TK-2024-152',
-      user: {
-        name: 'Lisa Chen',email: 'lisa.chen@design.com',avatar: 'https://images.unsplash.com/photo-1494790108755-2616b9e0b434?w=150'
-      },
-      subject: 'Account verification issues',category: 'technical',priority: 'high',status: 'open',assignee: null,createdAt: new Date(Date.now() - 4 * 60 * 60 * 1000),lastUpdated: new Date(Date.now() - 4 * 60 * 60 * 1000),description: `I'm unable to verify my account. I've clicked the verification link multiple times but it keeps saying the link is invalid or expired.`
-    },
-    {
-      id: 'TK-2024-151',
-      user: {
-        name: 'David Rodriguez',email: 'david.rodriguez@tech.com',avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150'
-      },
-      subject: 'Commission rate inquiry',category: 'billing',priority: 'medium',status: 'closed',
-      assignee: mockSupportAgents[0],
-      createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
-      lastUpdated: new Date(Date.now() - 20 * 60 * 60 * 1000),
-      description: `I have questions about the commission rates for my space listings. Can you provide more details about how the pricing structure works?`
+  // Filter tickets based on active tab and filters
+  const filteredTickets = useMemo(() => {
+    let filtered = allTickets;
+
+    // Apply tab filter first
+    if (activeTab === 'open') {
+      filtered = filtered.filter(ticket => ['open', 'pending', 'in-progress'].includes(ticket.status));
+    } else if (activeTab === 'resolved') {
+      filtered = filtered.filter(ticket => ['resolved', 'closed'].includes(ticket.status));
     }
-  ];
+    // 'all' shows everything
 
-  const [tickets, setTickets] = useState(mockTickets);
-  const [filteredTickets, setFilteredTickets] = useState(mockTickets);
-
-  // Filter tickets based on current filters
-  useEffect(() => {
-    let filtered = tickets;
-
+    // Apply other filters
     if (filters.search) {
       filtered = filtered.filter(ticket =>
         ticket.id.toLowerCase().includes(filters.search.toLowerCase()) ||
@@ -190,12 +128,20 @@ const SupportTicketSystem = () => {
       filtered = filtered.filter(ticket => ticket.priority === filters.priority);
     }
 
+    // Apply category filter (handles variations)
     if (filters.category !== 'all') {
-      filtered = filtered.filter(ticket => ticket.category === filters.category);
-    }
-
-    if (filters.status !== 'all') {
-      filtered = filtered.filter(ticket => ticket.status === filters.status);
+      filtered = filtered.filter(ticket => {
+        if (!ticket.category) return false
+        
+        // Normalize both the ticket category and filter value
+        const ticketCategoryNormalized = normalizeCategory(ticket.category)
+        const filterCategoryNormalized = normalizeCategory(filters.category)
+        
+        // Match normalized values or exact match
+        return ticketCategoryNormalized === filterCategoryNormalized ||
+               ticket.category.toLowerCase() === filters.category.toLowerCase() ||
+               ticket.category === filters.category
+      });
     }
 
     if (filters.assignee !== 'all') {
@@ -217,8 +163,8 @@ const SupportTicketSystem = () => {
       filtered = filtered.filter(ticket => ticket.createdAt <= toDate);
     }
 
-    setFilteredTickets(filtered);
-  }, [filters, tickets]);
+    return filtered;
+  }, [allTickets, filters, activeTab]);
 
   const handleTicketSelect = (ticket) => {
     setSelectedTicket(ticket);
@@ -226,34 +172,114 @@ const SupportTicketSystem = () => {
   };
 
   const handleTicketUpdate = (updatedTicket) => {
-    setTickets(prevTickets =>
-      prevTickets.map(ticket =>
-        ticket.id === updatedTicket.id ? updatedTicket : ticket
-      )
-    );
+    // The real-time subscription will handle the update
+    refetchTickets();
     setIsDetailModalOpen(false);
     setSelectedTicket(null);
   };
 
-  const handleBulkAction = (action, value) => {
-    console.log(`Bulk action: ${action} with value: ${value} for tickets:`, selectedTickets);
-    // Implement bulk action logic here
-    setSelectedTickets([]);
-  };
+  const handleBulkAction = async (action, value) => {
+    if (selectedTickets.length === 0) return;
 
-  const handleAssignTickets = (agentId) => {
-    if (agentId === 'auto') {
-      // Auto-assign logic
-      console.log('Auto-assigning tickets');
-    } else {
-      // Manual assign logic
-      console.log('Assigning tickets to agent:', agentId);
+    try {
+      // Find dbIds for selected tickets
+      const selectedTicketObjects = allTickets.filter(t => selectedTickets.includes(t.id));
+      const dbIds = selectedTicketObjects.map(t => t.dbId);
+      const count = dbIds.length;
+
+      if (action === 'assign' && value) {
+        // Bulk assign tickets
+        const { error } = await supabase
+          .from('support_tickets')
+          .update({ assigned_to: value, updated_at: new Date().toISOString() })
+          .in('id', dbIds);
+
+        if (error) throw error;
+        
+        // Find agent name for success message
+        const agent = supportAgents.find(a => a.id === value);
+        const agentName = agent ? agent.name : 'support agent';
+        showToast(`${count} ticket(s) assigned to ${agentName} successfully`, 'success');
+      } else if (action === 'status' && value) {
+        // Bulk update status
+        const { error } = await supabase
+          .from('support_tickets')
+          .update({ status: value, updated_at: new Date().toISOString() })
+          .in('id', dbIds);
+
+        if (error) throw error;
+        showToast(`${count} ticket(s) status updated to ${value} successfully`, 'success');
+      } else if (action === 'priority' && value) {
+        // Bulk update priority
+        const { error } = await supabase
+          .from('support_tickets')
+          .update({ priority: value, updated_at: new Date().toISOString() })
+          .in('id', dbIds);
+
+        if (error) throw error;
+        showToast(`${count} ticket(s) priority updated to ${value} successfully`, 'success');
+      }
+
+    setSelectedTickets([]);
+      // Real-time subscription will update the UI
+    } catch (error) {
+      console.error('Error performing bulk action:', error);
+      showToast('Failed to perform bulk action. Please try again.', 'error');
     }
   };
 
+  const handleAssignTickets = async (agentId) => {
+    if (selectedTickets.length === 0) {
+      showToast('Please select tickets to assign', 'warning');
+      return;
+    }
+
+    if (agentId === 'auto') {
+      // Auto-assign: assign to agent with least active tickets
+      if (supportAgents.length === 0) {
+        showToast('No support agents available', 'warning');
+        return;
+      }
+
+      const sortedAgents = [...supportAgents].sort((a, b) => a.activeTickets - b.activeTickets);
+      agentId = sortedAgents[0].id;
+    }
+
+    await handleBulkAction('assign', agentId);
+  };
+
   const handleExportTickets = () => {
-    console.log('Exporting tickets...');
-    // Implement export functionality
+    // Convert filtered tickets to CSV
+    const headers = ['Ticket ID', 'Subject', 'User', 'Email', 'Category', 'Priority', 'Status', 'Assignee', 'Created', 'Updated'];
+    const rows = filteredTickets.map(ticket => [
+      ticket.id,
+      ticket.subject,
+      ticket.user.name,
+      ticket.user.email,
+      ticket.category,
+      ticket.priority,
+      ticket.status,
+      ticket.assignee?.name || 'Unassigned',
+      ticket.createdAt.toLocaleDateString(),
+      ticket.lastUpdated.toLocaleDateString()
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `support_tickets_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    showToast(`${filteredTickets.length} ticket(s) exported successfully`, 'success');
   };
 
   return (
@@ -285,62 +311,98 @@ const SupportTicketSystem = () => {
               iconName="Download"
               className="sm:hidden"
             />
-            <UserProfileDropdown />
+            <div className="flex items-center space-x-4">
+              <NotificationBell />
+              <UserProfileDropdown />
+            </div>
           </div>
         </header>
 
         {/* Main Content */}
-        <main className="p-4 lg:p-6 space-y-6">
-          <div className="max-w-7xl mx-auto">
+        <main className="p-6 lg:p-8">
+          <div className="max-w-7xl mx-auto space-y-8">
             <BreadcrumbNavigation />
             
             {/* Stats Overview */}
-            <SupportStats stats={mockStats} />
+            <SupportStats stats={stats} />
             
             {/* Assignment Panel */}
             <AssignmentPanel
-              supportAgents={mockSupportAgents}
+              supportAgents={supportAgents}
               onAssignTickets={handleAssignTickets}
+              loading={agentsLoading}
             />
             
             {/* Filters */}
             <TicketFilters
               filters={filters}
               onFiltersChange={setFilters}
-              ticketCounts={mockTicketCounts}
+              ticketCounts={ticketCounts}
+              supportAgents={supportAgents}
             />
             
+            {/* Tabs and Results Header */}
+            <div className="bg-card rounded-lg border border-border overflow-hidden">
+              {/* Tabs */}
+              <div className="border-b border-border bg-muted/30">
+                <div className="flex space-x-1 px-6 pt-4">
+                  <button
+                    onClick={() => setActiveTab('open')}
+                    className={`px-6 py-3 text-sm font-medium transition-smooth border-b-2 ${
+                      activeTab === 'open'
+                        ? 'text-primary border-primary'
+                        : 'text-muted-foreground border-transparent hover:text-foreground'
+                    }`}
+                  >
+                    Open Tickets ({allTickets.filter(t => ['open', 'pending', 'in-progress'].includes(t.status)).length})
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('resolved')}
+                    className={`px-6 py-3 text-sm font-medium transition-smooth border-b-2 ${
+                      activeTab === 'resolved'
+                        ? 'text-primary border-primary'
+                        : 'text-muted-foreground border-transparent hover:text-foreground'
+                    }`}
+                  >
+                    Resolved ({allTickets.filter(t => ['resolved', 'closed'].includes(t.status)).length})
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('all')}
+                    className={`px-6 py-3 text-sm font-medium transition-smooth border-b-2 ${
+                      activeTab === 'all'
+                        ? 'text-primary border-primary'
+                        : 'text-muted-foreground border-transparent hover:text-foreground'
+                    }`}
+                  >
+                    All Tickets ({allTickets.length})
+                  </button>
+                </div>
+              </div>
+            
             {/* Results Header */}
-            <div className="bg-card rounded-lg border border-border p-4 lg:p-6 card-shadow">
+              <div className="p-6">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                   <h2 className="text-lg font-semibold text-foreground">
-                    Support Tickets ({filteredTickets.length})
+                      {activeTab === 'open' ? 'Open Tickets' : activeTab === 'resolved' ? 'Resolved Tickets' : 'All Tickets'} ({filteredTickets.length})
                   </h2>
                   {selectedTickets.length > 0 && (
-                    <span className="text-sm text-muted-foreground">
+                      <span className="text-sm text-muted-foreground bg-muted px-3 py-1 rounded-full">
                       {selectedTickets.length} selected
                     </span>
                   )}
                 </div>
                 
-                <div className="flex items-center space-x-2">
+                  <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
                     size="sm"
                     iconName="RefreshCw"
-                    onClick={() => window.location.reload()}
+                      onClick={refetchTickets}
+                      disabled={ticketsLoading}
                     className="hidden sm:flex"
                   >
                     Refresh
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    iconName="Filter"
-                    className="hidden sm:flex"
-                  >
-                    Advanced Filters
                   </Button>
                   
                   {/* Mobile buttons */}
@@ -348,13 +410,8 @@ const SupportTicketSystem = () => {
                     variant="outline"
                     size="sm"
                     iconName="RefreshCw"
-                    onClick={() => window.location.reload()}
-                    className="sm:hidden"
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    iconName="Filter"
+                      onClick={refetchTickets}
+                      disabled={ticketsLoading}
                     className="sm:hidden"
                   />
                 </div>
@@ -362,13 +419,21 @@ const SupportTicketSystem = () => {
             </div>
             
             {/* Tickets Table */}
+              {ticketsLoading ? (
+                <div className="p-12 text-center">
+                  <p className="text-muted-foreground">Loading tickets...</p>
+                </div>
+              ) : (
             <TicketTable
               tickets={filteredTickets}
               onTicketSelect={handleTicketSelect}
               onBulkAction={handleBulkAction}
               selectedTickets={selectedTickets}
               onTicketSelectionChange={setSelectedTickets}
+                  supportAgents={supportAgents}
             />
+              )}
+            </div>
           </div>
         </main>
       </div>

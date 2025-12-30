@@ -4,6 +4,8 @@ import Button from '../../../components/ui/Button';
 import Input from '../../../components/ui/Input';
 import Select from '../../../components/ui/Select';
 import { useToast } from '../../../components/ui/Toast';
+import { supabase } from '../../../lib/supabase';
+import { useAuth } from '../../../contexts/AuthContext';
 
 const SendMessageModal = ({ isOpen, onClose, booking, onSendMessage }) => {
   const [messageData, setMessageData] = useState({
@@ -13,7 +15,40 @@ const SendMessageModal = ({ isOpen, onClose, booking, onSendMessage }) => {
     template: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hostEmail, setHostEmail] = useState(null);
   const { showToast } = useToast();
+  const { user: adminUser } = useAuth();
+
+  // Fetch host email when booking changes
+  useEffect(() => {
+    const fetchHostEmail = async () => {
+      if (!booking?.raw?.listings?.partner_id) {
+        setHostEmail(null);
+        return;
+      }
+
+      try {
+        const { data: hostProfile, error } = await supabase
+          .from('profiles')
+          .select('email')
+          .eq('id', booking.raw.listings.partner_id)
+          .single();
+
+        if (!error && hostProfile) {
+          setHostEmail(hostProfile.email);
+        } else {
+          setHostEmail(null);
+        }
+      } catch (err) {
+        console.error('Error fetching host email:', err);
+        setHostEmail(null);
+      }
+    };
+
+    if (isOpen && booking) {
+      fetchHostEmail();
+    }
+  }, [isOpen, booking]);
 
   const recipientOptions = [
     { value: 'guest', label: 'Guest' },
@@ -35,32 +70,32 @@ const SendMessageModal = ({ isOpen, onClose, booking, onSendMessage }) => {
   const getTemplate = (templateKey) => {
     const templates = {
       booking_confirmation: {
-        subject: 'Booking Confirmation - ' + booking?.id,
-        message: `Dear ${booking?.guestName},\n\nYour booking for ${booking?.spaceName} has been confirmed.\n\nBooking Details:\n- Check-in: ${new Date(booking?.checkIn)?.toLocaleDateString()}\n- Check-out: ${new Date(booking?.checkOut)?.toLocaleDateString()}\n- Total: $${booking?.total}\n\nWe look forward to hosting you!\n\nBest regards,\nAdmin Team`
+        subject: 'Booking Confirmation - ' + booking?.booking_reference,
+        message: `Dear ${booking?.guestName},\n\nYour booking for ${booking?.spaceName} has been confirmed.\n\nBooking Details:\n- Check-in: ${new Date(booking?.checkIn)?.toLocaleDateString()}\n- Check-out: ${new Date(booking?.checkOut)?.toLocaleDateString()}\n- Total: A$${(Math.round((booking?.total || 0) * 100) / 100).toFixed(2)}\n\nWe look forward to hosting you!\n\nBest regards,\nAdmin Team`
       },
       check_in_reminder: {
-        subject: 'Check-in Reminder - ' + booking?.id,
+        subject: 'Check-in Reminder - ' + booking?.booking_reference,
         message: `Dear ${booking?.guestName},\n\nThis is a friendly reminder that your check-in date for ${booking?.spaceName} is approaching.\n\nCheck-in Date: ${new Date(booking?.checkIn)?.toLocaleDateString()}\n\nPlease ensure you have all necessary documents and contact information ready.\n\nBest regards,\nAdmin Team`
       },
       check_out_reminder: {
-        subject: 'Check-out Reminder - ' + booking?.id,
+        subject: 'Check-out Reminder - ' + booking?.booking_reference,
         message: `Dear ${booking?.guestName},\n\nWe hope you're enjoying your stay at ${booking?.spaceName}.\n\nThis is a reminder that your check-out date is: ${new Date(booking?.checkOut)?.toLocaleDateString()}\n\nPlease ensure you follow the check-out procedures provided.\n\nThank you for choosing us!\n\nBest regards,\nAdmin Team`
       },
       booking_modification: {
-        subject: 'Booking Modification Notice - ' + booking?.id,
+        subject: 'Booking Modification Notice - ' + booking?.booking_reference,
         message: `Dear ${booking?.guestName},\n\nYour booking for ${booking?.spaceName} has been modified.\n\nPlease review the updated booking details in your account.\n\nIf you have any questions, please don't hesitate to contact us.\n\nBest regards,\nAdmin Team`
       },
       cancellation_notice: {
-        subject: 'Booking Cancellation - ' + booking?.id,
-        message: `Dear ${booking?.guestName},\n\nWe regret to inform you that your booking for ${booking?.spaceName} has been cancelled.\n\nBooking ID: ${booking?.id}\n\nIf this cancellation was unexpected, please contact our support team immediately.\n\nBest regards,\nAdmin Team`
+        subject: 'Booking Cancellation - ' + booking?.booking_reference,
+        message: `Dear ${booking?.guestName},\n\nWe regret to inform you that your booking for ${booking?.spaceName} has been cancelled.\n\nReference: ${booking?.booking_reference}\n\nIf this cancellation was unexpected, please contact our support team immediately.\n\nBest regards,\nAdmin Team`
       },
       refund_processed: {
-        subject: 'Refund Processed - ' + booking?.id,
-        message: `Dear ${booking?.guestName},\n\nYour refund for booking ${booking?.id} has been processed successfully.\n\nRefund Details:\n- Original Amount: $${booking?.total}\n- Processing Time: 3-5 business days\n\nThe refund will be credited back to your original payment method.\n\nBest regards,\nAdmin Team`
+        subject: 'Refund Processed - ' + booking?.booking_reference,
+        message: `Dear ${booking?.guestName},\n\nYour refund for booking ${booking?.booking_reference} has been processed successfully.\n\nRefund Details:\n- Original Amount: A$${(Math.round((booking?.total || 0) * 100) / 100).toFixed(2)}\n- Processing Time: 3-5 business days\n\nThe refund will be credited back to your original payment method.\n\nBest regards,\nAdmin Team`
       },
       payment_issue: {
-        subject: 'Payment Issue - Action Required - ' + booking?.id,
-        message: `Dear ${booking?.guestName},\n\nWe've encountered an issue with the payment for your booking ${booking?.id}.\n\nPlease log into your account to review and update your payment information.\n\nIf you need assistance, please contact our support team.\n\nBest regards,\nAdmin Team`
+        subject: 'Payment Issue - Action Required - ' + booking?.booking_reference,
+        message: `Dear ${booking?.guestName},\n\nWe've encountered an issue with the payment for your booking ${booking?.booking_reference}.\n\nPlease log into your account to review and update your payment information.\n\nIf you need assistance, please contact our support team.\n\nBest regards,\nAdmin Team`
       }
     };
 
@@ -119,19 +154,137 @@ const SendMessageModal = ({ isOpen, onClose, booking, onSendMessage }) => {
     setIsSubmitting(true);
 
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Determine recipient IDs and emails
+      const guestId = booking?.raw?.seeker_id;
+      const hostId = booking?.raw?.listings?.partner_id;
+      const guestEmail = booking?.guestEmail;
+      const finalHostEmail = hostEmail || booking?.hostEmail;
+
+      if (!guestId || !adminUser?.id) {
+        throw new Error('Missing required user information');
+      }
+
+      // Determine recipients based on selection
+      let recipientIds = [];
+      let recipientEmails = [];
+
+      if (messageData?.recipient === 'guest' || messageData?.recipient === 'both') {
+        recipientIds.push(guestId);
+        if (guestEmail) recipientEmails.push(guestEmail);
+      }
+
+      if (messageData?.recipient === 'host' || messageData?.recipient === 'both') {
+        if (hostId) recipientIds.push(hostId);
+        if (finalHostEmail) recipientEmails.push(finalHostEmail);
+      }
+
+      if (recipientIds.length === 0) {
+        throw new Error('No valid recipients found');
+      }
+
+      // Send message to each recipient
+      const messageContent = messageData.subject 
+        ? `${messageData.subject}\n\n${messageData.message}`
+        : messageData.message;
+
+      const sentMessages = [];
+
+      for (const recipientId of recipientIds) {
+        // Get or create conversation between admin and recipient
+        let conversationId;
+
+        // Check if conversation exists
+        const { data: existingConvs, error: convCheckError } = await supabase
+          .from('conversations')
+          .select('id')
+          .or(`and(participant1_id.eq.${recipientId},participant2_id.eq.${adminUser.id}),and(participant1_id.eq.${adminUser.id},participant2_id.eq.${recipientId})`)
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        if (convCheckError) {
+          console.error('Error checking conversation:', convCheckError);
+          // Continue to create new conversation
+        }
+
+        const existingConv = existingConvs?.[0];
+
+        if (existingConv) {
+          conversationId = existingConv.id;
+        } else {
+          // Create new conversation
+          const { data: newConv, error: convError } = await supabase
+            .from('conversations')
+            .insert({
+              participant1_id: recipientId,
+              participant2_id: adminUser.id,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+            .select()
+            .single();
+
+          if (convError) {
+            console.error('Error creating conversation:', convError);
+            throw convError;
+          }
+
+          conversationId = newConv.id;
+        }
+
+        // Send message
+        const { data: newMessage, error: messageError } = await supabase
+          .from('messages')
+          .insert({
+            conversation_id: conversationId,
+            sender_id: adminUser.id,
+            content: messageContent,
+            message_type: 'text',
+            created_at: new Date().toISOString()
+          })
+          .select()
+          .single();
+
+        if (messageError) {
+          console.error('Error sending message:', messageError);
+          throw messageError;
+        }
+
+        sentMessages.push({ conversationId, messageId: newMessage.id, recipientId });
+
+        // Create notification for recipient
+        await supabase
+          .from('notifications')
+          .insert({
+            user_id: recipientId,
+            type: 'message',
+            title: `New message about booking ${booking?.booking_reference}`,
+            message: messageData.subject || 'You have received a new message',
+            data: {
+              conversation_id: conversationId,
+              message_id: newMessage.id,
+              sender_id: adminUser.id,
+              booking_id: booking?.id
+            },
+            read: false,
+            created_at: new Date().toISOString()
+          });
+
+        // Update conversation timestamp
+        await supabase
+          .from('conversations')
+          .update({ updated_at: new Date().toISOString() })
+          .eq('id', conversationId);
+      }
       
       const messageInfo = {
         bookingId: booking?.id,
         recipient: messageData?.recipient,
-        recipientEmail: messageData?.recipient === 'guest' ? booking?.guestEmail : 
-                       messageData?.recipient === 'host' ? booking?.hostEmail :
-                       [booking?.guestEmail, booking?.hostEmail],
+        recipientEmail: recipientEmails,
         subject: messageData?.subject,
         message: messageData?.message,
         template: messageData?.template,
-        sentAt: new Date()?.toISOString()
+        sentAt: new Date().toISOString(),
+        conversations: sentMessages
       };
 
       onSendMessage?.(messageInfo);
@@ -141,7 +294,7 @@ const SendMessageModal = ({ isOpen, onClose, booking, onSendMessage }) => {
       handleClose();
     } catch (error) {
       console.error('Error sending message:', error);
-      showToast('Failed to send message', 'error');
+      showToast(`Failed to send message: ${error.message || 'Unknown error'}`, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -169,7 +322,7 @@ const SendMessageModal = ({ isOpen, onClose, booking, onSendMessage }) => {
             </div>
             <div>
               <h2 className="text-xl font-semibold text-foreground">Send Message</h2>
-              <p className="text-sm text-muted-foreground">Booking ID: {booking?.id}</p>
+              <p className="text-sm text-muted-foreground">Reference: {booking?.booking_reference}</p>
             </div>
           </div>
           <Button

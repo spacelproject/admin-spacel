@@ -1,43 +1,52 @@
 import React from 'react';
 import Icon from '../../../components/AppIcon';
 
-const RevenueSummaryCards = () => {
+const RevenueSummaryCards = ({ summary }) => {
+  // Use only real data from props
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('en-AU', {
+      style: 'currency',
+      currency: 'AUD',
+      minimumFractionDigits: 2
+    }).format(amount);
+  };
+
   const summaryData = [
     {
       id: 'total-revenue',
-      title: 'Total Revenue',
-      value: '$45,280',
-      change: '+12.5%',
-      changeType: 'positive',
+      title: 'Total Booking Revenue',
+      value: formatCurrency(summary?.totalRevenue || 0),
+      change: '+0%', // Change calculation to be implemented when historical data is available
+      changeType: 'neutral',
       icon: 'DollarSign',
-      description: 'Platform commission earned this month'
+      description: 'Total booking amounts (base amounts)'
     },
     {
-      id: 'avg-commission',
-      title: 'Average Commission Rate',
-      value: '15.2%',
-      change: '+0.3%',
-      changeType: 'positive',
-      icon: 'Percent',
-      description: 'Weighted average across all categories'
+      id: 'net-platform-earnings',
+      title: 'Net Platform Earnings',
+      value: formatCurrency(summary?.totalNetApplicationFee || 0),
+      change: '+0%',
+      changeType: 'neutral',
+      icon: 'Wallet',
+      description: 'Total platform revenue after Stripe fees'
     },
     {
       id: 'total-transactions',
       title: 'Total Transactions',
-      value: '1,247',
-      change: '+8.7%',
-      changeType: 'positive',
+      value: summary?.totalTransactions?.toLocaleString() || '0',
+      change: '+0%', // Change calculation to be implemented when historical data is available
+      changeType: 'neutral',
       icon: 'CreditCard',
       description: 'Completed bookings this month'
     },
     {
       id: 'host-payouts',
       title: 'Host Payouts',
-      value: '$298,720',
-      change: '+15.2%',
-      changeType: 'positive',
+      value: formatCurrency(summary?.totalHostPayouts || 0),
+      change: '+0%', // Change calculation to be implemented when historical data is available
+      changeType: 'neutral',
       icon: 'Users',
-      description: 'Total paid to hosts this month'
+      description: 'Total withdrawn to hosts\' bank accounts'
     }
   ];
 

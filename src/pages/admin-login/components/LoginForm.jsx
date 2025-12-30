@@ -1,16 +1,19 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import Button from '../../../components/ui/Button';
 import Input from '../../../components/ui/Input';
-import { Checkbox } from '../../../components/ui/Checkbox';
 import Icon from '../../../components/AppIcon';
+import { useAuth } from '../../../contexts/AuthContext';
+import { useToast } from '../../../components/ui/Toast';
 
 const LoginForm = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { signIn, resetPassword, loading } = useAuth();
+  const { showToast } = useToast();
   const [formData, setFormData] = useState({
     email: '',
-    password: '',
-    rememberMe: false
+    password: ''
   });
   const [errors, setErrors] = useState({});
   const [isLoading, setIsLoading] = useState(false);
@@ -18,12 +21,15 @@ const LoginForm = () => {
   const [isLocked, setIsLocked] = useState(false);
   const [lockoutTime, setLockoutTime] = useState(0);
 
-  // Mock credentials for different admin roles
-  const mockCredentials = [
-    { email: 'admin@spacio.com', password: 'Admin123!', role: 'Super Administrator' },
-    { email: 'moderator@spacio.com', password: 'Mod123!', role: 'Content Moderator' },
-    { email: 'support@spacio.com', password: 'Support123!', role: 'Support Representative' }
-  ];
+  // Show success message from registration if present
+  useEffect(() => {
+    if (location.state?.message) {
+      showToast(location.state.message, location.state.type || 'success');
+      // Clear the state to prevent showing again on re-render
+      window.history.replaceState({}, document.title);
+    }
+  }, [location, showToast]);
+
 
   const validateForm = () => {
     const newErrors = {};
@@ -73,31 +79,25 @@ const LoginForm = () => {
     setIsLoading(true);
     setErrors({});
 
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    // Use Supabase authentication
+    const result = await signIn(formData.email, formData.password);
 
-    // Check credentials
-    const validCredential = mockCredentials.find(
-      cred => cred.email === formData.email && cred.password === formData.password
-    );
-
-    if (validCredential) {
-      // Store user session
-      localStorage.setItem('adminUser', JSON.stringify({
-        email: validCredential.email,
-        role: validCredential.role,
-        loginTime: new Date().toISOString()
-      }));
-
-      if (formData.rememberMe) {
-        localStorage.setItem('rememberAdmin', 'true');
-      }
-
+    if (result.success) {
       // Reset attempts on successful login
       setLoginAttempts(0);
       
-      // Redirect to dashboard
-      navigate('/dashboard-overview');
+      // Redirect based on role
+      let redirectPath = '/dashboard-overview';
+      if (result.role === 'support') {
+        redirectPath = '/support-agent-tickets';
+      } else {
+        redirectPath = location.state?.from?.pathname || '/dashboard-overview';
+      }
+      
+      // Small delay to ensure AuthContext state is updated
+      setTimeout(() => {
+        navigate(redirectPath, { replace: true });
+      }, 50);
     } else {
       const newAttempts = loginAttempts + 1;
       setLoginAttempts(newAttempts);
@@ -121,7 +121,7 @@ const LoginForm = () => {
         }, 1000);
       } else {
         setErrors({ 
-          general: `Invalid email or password. ${3 - newAttempts} attempts remaining.` 
+          general: result.error?.message || `Invalid email or password. ${3 - newAttempts} attempts remaining.` 
         });
       }
     }
@@ -129,9 +129,22 @@ const LoginForm = () => {
     setIsLoading(false);
   };
 
-  const handleForgotPassword = () => {
-    // In a real app, this would navigate to password reset
-    alert('Password reset functionality would be implemented here');
+  const handleForgotPassword = async () => {
+    if (!formData.email) {
+      setErrors({ general: 'Please enter your email address first' });
+      return;
+    }
+    
+    setIsLoading(true);
+    setErrors({});
+    
+    const result = await resetPassword(formData.email);
+    
+    if (!result.success) {
+      setErrors({ general: result.error?.message || 'Failed to send reset email' });
+    }
+    
+    setIsLoading(false);
   };
 
   return (
@@ -143,7 +156,7 @@ const LoginForm = () => {
             Admin Portal
           </h1>
           <p className="text-muted-foreground">
-            Sign in to access the SPACIO admin dashboard
+            Sign in to access the SPACEL admin dashboard
           </p>
         </div>
 
@@ -183,16 +196,8 @@ const LoginForm = () => {
             disabled={isLoading || isLocked}
           />
 
-          {/* Remember Me */}
-          <div className="flex items-center justify-between">
-            <Checkbox
-              label="Remember me"
-              name="rememberMe"
-              checked={formData.rememberMe}
-              onChange={handleInputChange}
-              disabled={isLoading || isLocked}
-            />
-            
+          {/* Forgot Password */}
+          <div className="flex items-center justify-end">
             <button
               type="button"
               onClick={handleForgotPassword}
@@ -218,13 +223,25 @@ const LoginForm = () => {
           </Button>
         </form>
 
-        {/* Mock Credentials Info */}
+        {/* Registration Link */}
+        <div className="mt-6 text-center">
+          <p className="text-sm text-muted-foreground">
+            Don't have an account?{' '}
+            <Link 
+              to="/admin-register" 
+              className="text-primary hover:text-primary/80 font-medium transition-smooth"
+            >
+              Create admin account
+            </Link>
+          </p>
+        </div>
+
+        {/* Admin Access Note */}
         <div className="mt-8 p-4 bg-muted/50 rounded-md">
-          <p className="text-xs text-muted-foreground mb-2 font-medium">Demo Credentials:</p>
+          <p className="text-xs text-muted-foreground mb-2 font-medium">Admin Access Required:</p>
           <div className="space-y-1 text-xs text-muted-foreground">
-            <p>Super Admin: admin@spacio.com / Admin123!</p>
-            <p>Moderator: moderator@spacio.com / Mod123!</p>
-            <p>Support: support@spacio.com / Support123!</p>
+            <p>Only users with admin privileges can access this panel.</p>
+            <p>Contact your system administrator if you need access.</p>
           </div>
         </div>
       </div>

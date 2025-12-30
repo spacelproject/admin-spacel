@@ -2,25 +2,62 @@ import React, { useState, useEffect } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import Select from '../../../components/ui/Select';
+import Input from '../../../components/ui/Input';
 import { useToast } from '../../../components/ui/Toast';
 
 const UpdateStatusModal = ({ isOpen, onClose, booking, onUpdateStatus }) => {
   const [selectedStatus, setSelectedStatus] = useState('');
+  const [reason, setReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { showToast } = useToast();
+
+  // Status transition validation
+  const getValidStatusTransitions = (currentStatus) => {
+    const transitions = {
+      pending: ['confirmed', 'cancelled'],
+      confirmed: ['completed', 'cancelled'],
+      completed: [], // Cannot change from completed
+      cancelled: [] // Cannot change from cancelled
+    };
+    return transitions[currentStatus] || [];
+  };
 
   const statusOptions = [
     { value: 'confirmed', label: 'Confirmed' },
     { value: 'pending', label: 'Pending' },
     { value: 'cancelled', label: 'Cancelled' },
     { value: 'completed', label: 'Completed' }
-  ];
+  ].filter(option => {
+    if (!booking?.status) return true;
+    const validTransitions = getValidStatusTransitions(booking.status);
+    return validTransitions.includes(option.value) || option.value === booking.status;
+  });
 
   useEffect(() => {
     if (booking) {
       setSelectedStatus(booking?.status || '');
+      setReason('');
     }
   }, [booking]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleEscape = (e) => {
+      if (e.key === 'Escape' && isOpen && !isSubmitting) {
+        handleClose();
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isOpen, isSubmitting]);
+
+  // Focus management
+  useEffect(() => {
+    if (isOpen) {
+      const firstInput = document.querySelector('[data-update-status-modal] input, [data-update-status-modal] select');
+      firstInput?.focus();
+    }
+  }, [isOpen]);
 
   if (!isOpen || !booking) return null;
 
@@ -37,25 +74,32 @@ const UpdateStatusModal = ({ isOpen, onClose, booking, onUpdateStatus }) => {
       return;
     }
 
+    // Validate status transition
+    const validTransitions = getValidStatusTransitions(booking?.status);
+    if (!validTransitions.includes(selectedStatus)) {
+      showToast(`Cannot change status from ${booking?.status} to ${selectedStatus}`, 'error');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      onUpdateStatus?.(booking?.id, selectedStatus);
+      await onUpdateStatus?.(booking?.id, selectedStatus, reason || null);
       showToast(`Booking status updated to ${selectedStatus}`, 'success');
       handleClose();
     } catch (error) {
       console.error('Error updating status:', error);
-      showToast('Failed to update booking status', 'error');
+      const errorMessage = error?.message || error?.error_description || 'Unknown error occurred';
+      showToast(`Failed to update booking status: ${errorMessage}`, 'error');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleClose = () => {
+    if (isSubmitting) return;
     setSelectedStatus(booking?.status || '');
+    setReason('');
     setIsSubmitting(false);
     onClose();
   };
@@ -71,83 +115,128 @@ const UpdateStatusModal = ({ isOpen, onClose, booking, onUpdateStatus }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-modal p-4">
-      <div className="bg-card rounded-lg shadow-modal w-full max-w-md">
+    <div className="fixed inset-0 z-modal flex items-stretch justify-end" data-update-status-modal>
+      {/* Overlay */}
+      <div
+        className="absolute inset-0 bg-black/40"
+        onClick={handleClose}
+        aria-label="Close modal"
+      />
+
+      {/* Sheet Panel */}
+      <div className="relative ml-auto h-full w-full max-w-xl sm:max-w-2xl bg-slate-50 border-l border-border shadow-modal flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-border">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-              <Icon name="RefreshCw" size={20} className="text-blue-600" />
-            </div>
-            <div>
-              <h2 className="text-xl font-semibold text-foreground">Update Booking Status</h2>
-              <p className="text-sm text-muted-foreground">Booking ID: {booking?.id}</p>
+        <div className="sticky top-0 z-[1] flex items-center justify-between px-6 py-4 border-b border-border bg-card/90 backdrop-blur">
+          <div className="flex items-center space-x-4">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                Update booking status
+              </span>
+              <h2 className="text-[17px] font-semibold text-foreground line-clamp-1">
+                {booking?.guestName} - {booking?.spaceName}
+              </h2>
             </div>
           </div>
           <Button
             variant="ghost"
             size="sm"
-            iconName="X"
             onClick={handleClose}
+            iconName="X"
+            className="rounded-full hover:bg-muted"
             disabled={isSubmitting}
+            aria-label="Close modal"
           />
         </div>
 
-        {/* Content */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          {/* Booking Info */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Guest:</span>
-              <span className="text-sm font-medium text-foreground">{booking?.guestName}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Space:</span>
-              <span className="text-sm font-medium text-foreground">{booking?.spaceName}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Current Status:</span>
-              <span className={`text-sm font-medium capitalize ${getStatusColor(booking?.status)}`}>
-                {booking?.status}
-              </span>
-            </div>
-          </div>
-
-          <div className="border-t border-border pt-4">
-            <Select
-              label="New Status"
-              options={statusOptions}
-              value={selectedStatus}
-              onChange={(value) => setSelectedStatus(value)}
-              placeholder="Select new status"
-              required
-            />
-          </div>
-
-          {selectedStatus && selectedStatus !== booking?.status && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <div className="flex items-start space-x-3">
-                <Icon name="Info" size={16} className="text-blue-600 mt-0.5 flex-shrink-0" />
-                <div className="text-sm text-blue-800">
-                  <p className="font-medium">Status Change Impact:</p>
-                  <p className="mt-1">
-                    {selectedStatus === 'cancelled' && 'This will cancel the booking and may trigger refund processes.'}
-                    {selectedStatus === 'confirmed' && 'This will confirm the booking and notify the guest.'}
-                    {selectedStatus === 'completed' && 'This marks the booking as completed.'}
-                    {selectedStatus === 'pending' && 'This will set the booking back to pending review.'}
-                  </p>
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-5">
+            {/* Booking Info */}
+            <div className="rounded-2xl bg-card px-5 py-4 shadow-sm">
+              <h3 className="text-xs font-semibold tracking-[0.14em] uppercase text-muted-foreground mb-3">
+                Booking Information
+              </h3>
+              <div className="space-y-2.5">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Guest:</span>
+                  <span className="text-sm font-semibold text-foreground">{booking?.guestName}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Space:</span>
+                  <span className="text-sm font-semibold text-foreground">{booking?.spaceName}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Current Status:</span>
+                  <span className={`text-sm font-semibold capitalize ${getStatusColor(booking?.status)}`}>
+                    {booking?.status}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Reference:</span>
+                  <span className="text-xs font-mono text-foreground">{booking?.booking_reference}</span>
                 </div>
               </div>
             </div>
-          )}
-        </form>
+
+            {/* Status Selection */}
+            <div className="rounded-2xl bg-card px-5 py-4 shadow-sm space-y-4">
+              <h3 className="text-xs font-semibold tracking-[0.14em] uppercase text-muted-foreground">
+                Status Update
+              </h3>
+              
+              <Select
+                label="New Status"
+                options={statusOptions}
+                value={selectedStatus}
+                onChange={(value) => setSelectedStatus(value)}
+                placeholder="Select new status"
+                required
+                disabled={isSubmitting}
+              />
+
+              <div>
+                <label className="text-sm font-medium text-foreground mb-2 block">
+                  Reason for Change {selectedStatus === 'cancelled' && <span className="text-red-500">*</span>}
+                </label>
+                <Input
+                  type="textarea"
+                  placeholder={selectedStatus === 'cancelled' ? 'Cancellation reason is required...' : 'Enter reason for status change (optional)...'}
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  rows={4}
+                  disabled={isSubmitting}
+                  required={selectedStatus === 'cancelled'}
+                />
+              </div>
+            </div>
+
+            {/* Status Change Impact */}
+            {selectedStatus && selectedStatus !== booking?.status && (
+              <div className="rounded-2xl bg-blue-50/80 border border-blue-200 px-5 py-4 shadow-sm">
+                <div className="flex items-start space-x-3">
+                  <Icon name="Info" size={18} className="text-blue-600 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm text-blue-900">
+                    <p className="font-semibold mb-1">Status Change Impact:</p>
+                    <p className="text-blue-800">
+                      {selectedStatus === 'cancelled' && 'This will cancel the booking and may trigger refund processes. Guest and host will be notified.'}
+                      {selectedStatus === 'confirmed' && 'This will confirm the booking and notify the guest. The booking will be active.'}
+                      {selectedStatus === 'completed' && 'This marks the booking as completed. The booking period has ended.'}
+                      {selectedStatus === 'pending' && 'This will set the booking back to pending review. Requires admin approval.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </form>
+        </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end space-x-3 p-6 border-t border-border">
+        <div className="flex items-center justify-between px-6 py-3 border-t border-border bg-card/96 backdrop-blur flex-shrink-0">
           <Button 
             variant="outline" 
             onClick={handleClose}
             disabled={isSubmitting}
+            size="sm"
           >
             Cancel
           </Button>
@@ -157,7 +246,8 @@ const UpdateStatusModal = ({ isOpen, onClose, booking, onUpdateStatus }) => {
             loading={isSubmitting}
             iconName="RefreshCw"
             iconPosition="left"
-            disabled={!selectedStatus || selectedStatus === booking?.status}
+            disabled={!selectedStatus || selectedStatus === booking?.status || (selectedStatus === 'cancelled' && !reason.trim())}
+            size="sm"
           >
             {isSubmitting ? 'Updating...' : 'Update Status'}
           </Button>

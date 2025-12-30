@@ -1,47 +1,50 @@
 import React, { useState } from 'react';
 import AdminSidebar from '../../components/ui/AdminSidebar';
 import UserProfileDropdown from '../../components/ui/UserProfileDropdown';
+import NotificationBell from '../../components/NotificationBell';
 import BreadcrumbNavigation from '../../components/ui/BreadcrumbNavigation';
-import CommissionRateSettings from './components/CommissionRateSettings';
 import RevenueTrackingTable from './components/RevenueTrackingTable';
 import RevenueSummaryCards from './components/RevenueSummaryCards';
 import RateChangeHistory from './components/RateChangeHistory';
 import RevenueChart from './components/RevenueChart';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
+import { ToastProvider } from '../../components/ui/Toast';
+import LoadingState from '../../components/ui/LoadingState';
+import useCommissionData from '../../hooks/useCommissionData';
+import { useSidebar } from '../../contexts/SidebarContext';
 
 const CommissionManagement = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const [isExporting, setIsExporting] = useState(false);
+  const { isExpanded } = useSidebar();
 
-  const handleRateChange = (changeData) => {
-    console.log('Rate change:', changeData);
-    // Handle rate change logic here
-  };
+  // Use real commission data from database
+  const { 
+    summary, 
+    bookings, 
+    monthlyData, 
+    hostEarnings, 
+    loading, 
+    error, 
+    exportCommissionData 
+  } = useCommissionData();
+
+  // Debug logging for commission management
+  console.log('🔍 CommissionManagement received data:', {
+    summary,
+    bookingsCount: bookings?.length,
+    loading,
+    error,
+    totalRevenue: summary?.totalRevenue,
+    totalCommission: summary?.totalCommission,
+    sampleBooking: bookings?.[0]
+  });
 
   const handleExportData = async () => {
     setIsExporting(true);
     try {
-      // Simulate export process
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Create mock CSV data
-      const csvData = [
-        ['Booking ID', 'Host', 'Space', 'Booking Amount', 'Commission Rate', 'Platform Fee', 'Host Payout', 'Date'],
-        ['BK-2025-001', 'Sarah Johnson', 'Modern Conference Room', '$450.00', '15%', '$67.50', '$382.50', '2025-01-15'],
-        ['BK-2025-002', 'Michael Chen', 'Creative Coworking Space', '$280.00', '18%', '$50.40', '$229.60', '2025-01-14']
-      ];
-      
-      const csvContent = csvData?.map(row => row?.join(','))?.join('\n');
-      const blob = new Blob([csvContent], { type: 'text/csv' });
-      const url = window.URL?.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `revenue-report-${new Date()?.toISOString()?.split('T')?.[0]}.csv`;
-      document.body?.appendChild(a);
-      a?.click();
-      document.body?.removeChild(a);
-      window.URL?.revokeObjectURL(url);
+      await exportCommissionData();
     } catch (error) {
       console.error('Export failed:', error);
     } finally {
@@ -59,20 +62,72 @@ const CommissionManagement = () => {
     { id: 'history', label: 'Change History', icon: 'Clock' }
   ];
 
+  // Show loading state
+  if (loading) {
+    return (
+      <ToastProvider>
+        <div className="min-h-screen bg-background">
+          <AdminSidebar />
+          <div className={`transition-all duration-300 ${isExpanded ? 'lg:ml-sidebar' : 'lg:ml-sidebar-collapsed'}`}>
+            <header className="h-header bg-header-background border-b border-header-border px-6 flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <h1 className="text-xl font-semibold text-foreground">Commission Management</h1>
+              </div>
+              <div className="flex items-center space-x-4">
+                <NotificationBell />
+                <UserProfileDropdown />
+              </div>
+            </header>
+            <main className="p-6">
+              <LoadingState message="Fetching commission information..." />
+            </main>
+          </div>
+        </div>
+      </ToastProvider>
+    );
+  }
+
+  // Show error state
+  if (error) {
+    return (
+      <ToastProvider>
+        <div className="min-h-screen bg-background">
+          <AdminSidebar />
+          <div className={`transition-all duration-300 ${isExpanded ? 'lg:ml-sidebar' : 'lg:ml-sidebar-collapsed'}`}>
+            <main className="p-6">
+              <div className="text-center py-12">
+                <Icon name="AlertCircle" size={48} className="text-error mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-foreground mb-2">Error Loading Commission Data</h3>
+                <p className="text-muted-foreground mb-4">{error}</p>
+                <Button onClick={() => window.location.reload()}>
+                  Try Again
+                </Button>
+              </div>
+            </main>
+          </div>
+        </div>
+      </ToastProvider>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-background">
-      <AdminSidebar />
-      <div className="lg:ml-sidebar">
+    <ToastProvider>
+      <div className="min-h-screen bg-background">
+        <AdminSidebar />
+          <div className={`transition-all duration-300 ${isExpanded ? 'lg:ml-sidebar' : 'lg:ml-sidebar-collapsed'}`}>
         {/* Header */}
         <header className="h-header bg-header-background border-b border-header-border px-6 flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <h1 className="text-xl font-semibold text-header-foreground">Commission Management</h1>
           </div>
-          <UserProfileDropdown />
+          <div className="flex items-center space-x-4">
+            <NotificationBell />
+            <UserProfileDropdown />
+          </div>
         </header>
 
         {/* Main Content */}
-        <main className="p-6">
+        <main className="p-4 lg:p-6 w-full max-w-none">
           <BreadcrumbNavigation />
 
           {/* Page Header */}
@@ -127,36 +182,32 @@ const CommissionManagement = () => {
 
           {/* Tab Content */}
           {activeTab === 'overview' && (
-            <div className="space-y-8">
+            <div className="space-y-8 w-full">
               {/* Summary Cards */}
-              <RevenueSummaryCards />
+              <RevenueSummaryCards summary={summary} />
 
               {/* Revenue Chart */}
-              <RevenueChart />
+              <RevenueChart monthlyData={monthlyData} />
 
-              {/* Desktop Layout: Two Columns */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                {/* Left Panel: Commission Settings (4 columns) */}
-                <div className="lg:col-span-4">
-                  <CommissionRateSettings onRateChange={handleRateChange} />
-                </div>
-
-                {/* Right Panel: Revenue Table (8 columns) */}
-                <div className="lg:col-span-8">
-                  <RevenueTrackingTable onExport={handleExportData} />
-                </div>
+              {/* Revenue Tracking Table */}
+              <div className="w-full">
+              <RevenueTrackingTable 
+                bookings={bookings}
+                onExport={handleExportData}
+              />
               </div>
             </div>
           )}
 
           {activeTab === 'history' && (
-            <div className="max-w-6xl">
-              <RateChangeHistory />
+            <div className="w-full">
+              <RateChangeHistory bookings={bookings} />
             </div>
           )}
         </main>
       </div>
     </div>
+    </ToastProvider>
   );
 };
 

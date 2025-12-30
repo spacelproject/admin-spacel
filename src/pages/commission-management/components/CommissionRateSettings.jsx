@@ -249,9 +249,9 @@ const CommissionRateSettings = ({ onRateChange }) => {
               </div>
               
               <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Example: $100 booking</span>
+                <span className="text-muted-foreground">Example: A$100 booking</span>
                 <span className="font-medium text-card-foreground">
-                  Commission: ${(commissionRates?.seeker)?.toFixed(2)}
+                  Commission: A${(commissionRates?.seeker)?.toFixed(2)}
                 </span>
               </div>
             </div>
@@ -303,9 +303,9 @@ const CommissionRateSettings = ({ onRateChange }) => {
               </div>
               
               <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Example: $100 booking</span>
+                <span className="text-muted-foreground">Example: A$100 booking</span>
                 <span className="font-medium text-card-foreground">
-                  Commission: ${(commissionRates?.partner)?.toFixed(2)}
+                  Commission: A${(commissionRates?.partner)?.toFixed(2)}
                 </span>
               </div>
             </div>

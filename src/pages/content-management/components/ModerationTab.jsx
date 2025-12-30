@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import Input from '../../../components/ui/Input';
@@ -6,6 +6,8 @@ import Select from '../../../components/ui/Select';
 import Image from '../../../components/AppImage';
 import ContentDetailsModal from './ContentDetailsModal';
 import ActionDropdown from './ActionDropdown';
+import useContentReports from '../../../hooks/useContentReports';
+import LoadingState from '../../../components/ui/LoadingState';
 
 const ModerationTab = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -14,95 +16,40 @@ const ModerationTab = () => {
   const [selectedItems, setSelectedItems] = useState([]);
   const [detailsModal, setDetailsModal] = useState({ isOpen: false, item: null });
 
-  const moderationItems = [
-    {
-      id: 1,
-      type: 'listing',
-      title: 'Modern Downtown Loft',
-      reporter: 'guest_user_123',
-      reportReason: 'Misleading photos',
-      status: 'pending',
-      priority: 'high',
-      submittedDate: '2025-01-16T14:30:00Z',
-      content: 'The photos in this listing don\'t match the actual space. The room is much smaller than shown.',
-      author: 'host_user_456',
-      images: [
-        'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=400&h=300&fit=crop',
-        'https://images.unsplash.com/photo-1484154218962-a197022b5858?w=400&h=300&fit=crop'
-      ]
-    },
-    {
-      id: 2,
-      type: 'review',
-      title: 'Review for Cozy Studio Apartment',
-      reporter: 'system_auto',
-      reportReason: 'Inappropriate language',
-      status: 'pending',
-      priority: 'medium',
-      submittedDate: '2025-01-16T12:15:00Z',
-      content: 'This place was absolutely terrible. The host was rude and the space was dirty. I would never recommend this to anyone.',
-      author: 'guest_user_789',
-      rating: 1
-    },
-    {
-      id: 3,
-      type: 'message',
-      title: 'Host-Guest Communication',
-      reporter: 'guest_user_321',
-      reportReason: 'Harassment',
-      status: 'under_review',
-      priority: 'high',
-      submittedDate: '2025-01-16T09:45:00Z',
-      content: 'The host has been sending inappropriate messages and making me uncomfortable.',
-      author: 'host_user_654',
-      conversationId: 'conv_12345'
-    },
-    {
-      id: 4,
-      type: 'listing',
-      title: 'Luxury Penthouse Suite',
-      reporter: 'guest_user_555',
-      reportReason: 'Fake listing',
-      status: 'approved',
-      priority: 'high',
-      submittedDate: '2025-01-15T16:20:00Z',
-      content: 'This listing appears to be using stock photos and may not be a real property.',
-      author: 'host_user_777',
-      moderatorNote: 'Verified with host - legitimate listing with professional photos',
-      images: [
-        'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=400&h=300&fit=crop'
-      ]
-    },
-    {
-      id: 5,
-      type: 'review',
-      title: 'Review for Garden View Room',
-      reporter: 'host_user_888',
-      reportReason: 'False information',
-      status: 'rejected',
-      priority: 'low',
-      submittedDate: '2025-01-15T11:30:00Z',
-      content: 'Great location and clean space. Host was very responsive and helpful.',
-      author: 'guest_user_999',
-      rating: 5,
-      moderatorNote: 'Review appears genuine and follows community guidelines'
-    },
-    {
-      id: 6,
-      type: 'listing',
-      title: 'Beachfront Villa',
-      reporter: 'guest_user_111',
-      reportReason: 'Discriminatory content',
-      status: 'pending',
-      priority: 'high',
-      submittedDate: '2025-01-16T08:00:00Z',
-      content: 'The listing description contains language that may be discriminatory against certain groups.',
-      author: 'host_user_222',
-      images: [
-        'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=400&h=300&fit=crop'
-      ]
-    }
-  ];
+  // Use real data from database
+  const {
+    reports: reportsData,
+    loading,
+    error,
+    updateReport,
+    assignReport,
+    resolveReport,
+    dismissReport
+  } = useContentReports();
+
+  // Transform reports data to match component expectations
+  const moderationItems = useMemo(() => {
+    if (!reportsData || reportsData.length === 0) return [];
+    
+    return reportsData.map(report => ({
+      id: report.id,
+      type: report.reportedItemType || 'listing', // listing, review, message, profile
+      title: report.metadata?.title || `Report #${report.id.slice(0, 8)}`,
+      reporter: report.reporter || 'Anonymous',
+      reportReason: report.reportReason || 'Other',
+      status: report.status === 'resolved' ? 'approved' : 
+              report.status === 'dismissed' ? 'rejected' : 
+              report.status, // pending, under_review, approved, rejected
+      priority: report.priority || 'medium',
+      submittedDate: report.createdAt || new Date(),
+      content: report.reportDescription || report.reportReason || '',
+      author: report.metadata?.author || 'Unknown',
+      images: report.evidenceUrls || [],
+      moderatorNote: report.resolutionNotes || null,
+      rating: report.metadata?.rating || null,
+      conversationId: report.metadata?.conversationId || null
+    }));
+  }, [reportsData]);
 
   const typeOptions = [
     { value: 'all', label: 'All Types' },
@@ -144,13 +91,30 @@ const ModerationTab = () => {
     }
   };
 
-  const handleBulkAction = (action) => {
-    console.log(`Bulk ${action} for items:`, selectedItems);
-    setSelectedItems([]);
-  };
-
-  const handleModerationAction = (itemId, action) => {
-    console.log(`${action} item:`, itemId);
+  const handleBulkAction = async (action) => {
+    try {
+      if (action === 'approve') {
+        for (const id of selectedItems) {
+          await resolveReport(id, {
+            action: 'approved',
+            notes: 'Bulk approved by moderator'
+          });
+        }
+      } else if (action === 'reject') {
+        for (const id of selectedItems) {
+          await dismissReport(id, 'Bulk rejected - does not violate guidelines');
+        }
+      } else if (action === 'delete') {
+        if (window.confirm(`Are you sure you want to delete ${selectedItems.length} items?`)) {
+          for (const id of selectedItems) {
+            await dismissReport(id, 'Bulk deleted by moderator');
+          }
+        }
+      }
+      setSelectedItems([]);
+    } catch (error) {
+      console.error('Error executing bulk action:', error);
+    }
   };
 
   const handleViewDetails = (item) => {
@@ -159,22 +123,6 @@ const ModerationTab = () => {
 
   const handleEdit = (item) => {
     console.log('Editing moderation item:', item?.id);
-  };
-
-  const handleApprove = (item) => {
-    console.log('Approving item:', item?.id);
-    handleModerationAction(item?.id, 'approve');
-  };
-
-  const handleReject = (item) => {
-    console.log('Rejecting item:', item?.id);
-    handleModerationAction(item?.id, 'reject');
-  };
-
-  const handleDelete = (item) => {
-    if (window.confirm(`Are you sure you want to delete this ${item?.type}?`)) {
-      console.log('Deleting moderation item:', item?.id);
-    }
   };
 
   const getPriorityBadge = (priority) => {
@@ -218,7 +166,60 @@ const ModerationTab = () => {
     return typeIcons?.[type] || 'FileText';
   };
 
+  const handleModerationAction = async (itemId, action) => {
+    try {
+      if (action === 'approve') {
+        await resolveReport(itemId, {
+          action: 'approved',
+          notes: 'Content approved by moderator'
+        });
+      } else if (action === 'reject') {
+        await dismissReport(itemId, 'Content rejected - does not violate guidelines');
+      }
+    } catch (error) {
+      console.error(`Error ${action}ing item:`, error);
+    }
+  };
+
+  const handleApprove = async (item) => {
+    try {
+      await resolveReport(item.id, {
+        action: 'approved',
+        notes: 'Content approved by moderator'
+      });
+    } catch (error) {
+      console.error('Error approving item:', error);
+    }
+  };
+
+  const handleReject = async (item) => {
+    try {
+      await dismissReport(item.id, 'Content rejected - does not violate guidelines');
+    } catch (error) {
+      console.error('Error rejecting item:', error);
+    }
+  };
+
+  const handleDelete = async (item) => {
+    if (window.confirm(`Are you sure you want to delete this ${item?.type}?`)) {
+      try {
+        await dismissReport(item.id, 'Report deleted by moderator');
+      } catch (error) {
+        console.error('Error deleting moderation item:', error);
+      }
+    }
+  };
+
   const formatDate = (dateString) => {
+    if (!dateString) return '-';
+    if (dateString instanceof Date) {
+      return dateString.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
     return new Date(dateString)?.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
@@ -226,6 +227,31 @@ const ModerationTab = () => {
       minute: '2-digit'
     });
   };
+
+  // Show loading state
+  if (loading) {
+    return (
+      <div className="p-6">
+        <LoadingState message="Fetching content reports..." />
+      </div>
+    );
+  }
+
+  // Show error state
+  if (error) {
+    return (
+      <div className="p-6">
+        <div className="text-center py-12">
+          <Icon name="AlertCircle" size={48} className="text-error mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-foreground mb-2">Error Loading Moderation Reports</h3>
+          <p className="text-muted-foreground mb-4">{error}</p>
+          <Button onClick={() => window.location.reload()}>
+            Try Again
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">
