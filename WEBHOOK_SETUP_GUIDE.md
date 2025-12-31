@@ -202,6 +202,68 @@ You don't need to manually configure headers or URLs when using this option!
 
 ---
 
+### Step 7: Create Webhook for Customer Reply Notifications
+
+1. **Click "New Webhook"** again
+
+2. **Fill in the webhook configuration:**
+
+   **Basic Settings:**
+   - **Name**: `notify-customer-reply`
+   - **Table**: Select `support_ticket_replies` from dropdown
+   - **Events**: Check ✅ `INSERT` only
+   
+   **Filter (Important!):**
+   - Click **"Add Filter"**
+   - **Column**: `admin_id`
+   - **Operator**: `IS NOT NULL`
+   - This ensures the webhook only fires when a support agent replies (not customer messages)
+   
+   **Type of webhook:**
+   - Select **"Supabase Edge Functions"** (NOT "HTTP Request")
+   
+   **Edge Function Configuration:**
+   - **Edge Function**: Select `notify-customer-reply` from dropdown
+   - **HTTP Method**: `POST` (default)
+   - **Timeout**: `5000` (5 seconds) or `10000` (10 seconds)
+   
+   **HTTP Headers:**
+   - Click **"Add new header"** → **"Add auth header with service key"**
+
+3. **Click "Save"** or **"Create Webhook"**
+
+---
+
+### Step 8: Create Webhook for Status Change Notifications (Customers)
+
+1. **Click "New Webhook"** again
+
+2. **Fill in the webhook configuration:**
+
+   **Basic Settings:**
+   - **Name**: `notify-status-change`
+   - **Table**: Select `support_tickets` from dropdown
+   - **Events**: Check ✅ `UPDATE` only
+   
+   **Filter:**
+   - (No filter needed - all updates will be checked)
+   - **Note**: The Edge Function will verify that the status actually changed before sending email
+   
+   **Type of webhook:**
+   - Select **"Supabase Edge Functions"** (NOT "HTTP Request")
+   
+   **Edge Function Configuration:**
+   - **Edge Function**: Select `notify-status-change` from dropdown
+   - **HTTP Method**: `POST` (default)
+   - **Timeout**: `5000` (5 seconds) or `10000` (10 seconds)
+   
+   **HTTP Headers:**
+   - Click **"Add new header"** → **"Add auth header with service key"**
+
+3. **Click "Save"** or **"Create Webhook"**
+
+---
+
 ## ✅ Verification
 
 ### Test Pending Listing Email:
@@ -230,6 +292,18 @@ You don't need to manually configure headers or URLs when using this option!
 3. **Change the priority** of an assigned ticket - support agent should receive email
 4. **Add an internal note** to an assigned ticket - support agent should receive email
 5. **Verify in webhook logs**
+
+### Test Customer Reply Email:
+
+1. **Have a support agent reply** to a customer's ticket
+2. **Check the customer's email inbox** - they should receive a reply notification
+3. **Verify in webhook logs**
+
+### Test Status Change Email:
+
+1. **Change the status** of a customer's ticket (e.g., from "open" to "resolved")
+2. **Check the customer's email inbox** - they should receive a status change notification
+3. **Verify in webhook logs**
 
 ---
 
@@ -275,7 +349,8 @@ LIMIT 10;
 ### Edge Function returns 500:
 - ✅ Check Edge Function logs for error details
 - ✅ Verify `RESEND_API_KEY` is set in Edge Function secrets
-- ✅ Check `ADMIN_PANEL_URL` is set if you customized it
+- ✅ Check `ADMIN_PANEL_URL` is set if you customized it (for admin notifications)
+- ✅ Check `CUSTOMER_PORTAL_URL` is set if you customized it (for customer notifications)
 - ✅ Verify `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set
 
 ### Emails not received:
@@ -303,10 +378,13 @@ Once both webhooks are set up:
 - `notify-new-ticket` - Handles new ticket notifications (admins/super_admins only)
 - `notify-ticket-assignment` - Handles ticket assignment notifications (support agents only)
 - `notify-ticket-activity` - Handles ticket activity notifications (support agents only)
+- `notify-customer-reply` - Handles customer reply notifications when support agents respond
+- `notify-status-change` - Handles status change notifications (customers)
 
 **Email Recipients:**
 - **Admins/Super Admins**: Receive emails for new tickets and pending listings
 - **Support Agents**: Receive emails ONLY for tickets assigned to them (assignment, messages, priority changes, internal notes)
+- **Customers**: Receive emails when support agents reply to their tickets AND when ticket status changes
 
 **Dashboard Links:**
 - Webhooks: https://supabase.com/dashboard/project/bwgwoqywmlaevyygkafg/database/webhooks

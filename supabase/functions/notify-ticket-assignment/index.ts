@@ -266,24 +266,35 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Additional deduplication: Check if we've sent an email for this ticket assignment recently (within last 60 seconds)
-    // This catches cases where webhook fires multiple times or old value is not provided
-    const sixtySecondsAgo = new Date(Date.now() - 60 * 1000).toISOString();
-    const { data: recentLogs, error: logCheckErr } = await supabase
+    // Enhanced deduplication: Check if we've already sent an assignment email for this ticket+agent combination
+    // This prevents duplicates when webhook fires multiple times or old value is not provided
+    // We check within the last 24 hours to catch duplicate assignments
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data: existingLogs, error: logCheckErr } = await supabase
       .from("system_logs")
-      .select("id, created_at")
+      .select("id, created_at, details")
       .eq("source", "edge/notify-ticket-assignment")
       .eq("log_type", "info")
       .eq("details->>ticket_id", ticketId)
       .eq("details->>assigned_to", assignedTo)
-      .gte("created_at", sixtySecondsAgo)
+      .gte("created_at", twentyFourHoursAgo)
+      .order("created_at", { ascending: false })
       .limit(1);
 
-    if (!logCheckErr && recentLogs && recentLogs.length > 0) {
-      return new Response(JSON.stringify({ message: "Email already sent recently for this assignment, skipping duplicate" }), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (!logCheckErr && existingLogs && existingLogs.length > 0) {
+      // If we've already sent an email for this ticket+agent combination, skip unless:
+      // 1. oldAssignedTo is provided AND different from assignedTo (reassignment case)
+      // 2. If oldAssignedTo is not provided or is the same, we've already notified this agent about this ticket
+      const isReassignment = oldAssignedTo !== undefined && oldAssignedTo !== null && oldAssignedTo !== assignedTo;
+      
+      if (!isReassignment) {
+        // Not a reassignment, and we've already sent an email for this ticket+agent combo - skip duplicate
+        return new Response(JSON.stringify({ message: "Assignment email already sent for this ticket+agent combination, skipping duplicate" }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      // If it's a reassignment (oldAssignedTo !== assignedTo), continue to send email to the new agent
     }
 
     // Fetch assigned support agent information

@@ -260,6 +260,20 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // For message/reply activity: Skip notification if message is from a support agent/admin
+    // Only notify support agents when the customer sends a message
+    if (activityType === "message" && body.record) {
+      const messageAdminId = body.record.admin_id as string | null | undefined;
+      // If admin_id is set, this means a support agent/admin sent the message
+      // Don't notify support agents when they themselves reply
+      if (messageAdminId) {
+        return new Response(JSON.stringify({ message: "Message is from support agent/admin, skipping notification to support agent" }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     // Fetch assigned support agent information
     const { data: assignedAgent, error: agentErr } = await supabase
       .from("admin_users")
