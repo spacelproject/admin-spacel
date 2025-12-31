@@ -1,12 +1,12 @@
-// Supabase Edge Function: notify-new-ticket
-// Sends email notifications to admins and support agents when a new support ticket is created
+// Supabase Edge Function: notify-ticket-assignment
+// Sends email notifications to support agents when a ticket is assigned to them
 //
 // Required secrets (Supabase Dashboard → Project Settings → Functions → Secrets):
 // - RESEND_API_KEY
 // - SUPABASE_URL
 // - SUPABASE_SERVICE_ROLE_KEY
 //
-// This function can be called from database triggers using pg_net or from the frontend
+// This function is called from database webhooks when assigned_to is set/updated
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -48,6 +48,7 @@ function renderTemplate({
   description_preview,
   ticket_url,
   logo_url,
+  assigned_by_name,
 }: {
   ticket_subject: string;
   ticket_id: string;
@@ -59,6 +60,7 @@ function renderTemplate({
   description_preview?: string | null;
   ticket_url?: string | null;
   logo_url?: string | null;
+  assigned_by_name?: string | null;
 }) {
   const logoHtml = logo_url 
     ? `<img src="${logo_url}" alt="Spacel" style="max-width:120px;height:auto;display:block;margin:0 auto 20px;" />`
@@ -72,7 +74,7 @@ function renderTemplate({
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>New Support Ticket: ${ticket_subject}</title>
+  <title>Ticket Assigned: ${ticket_subject}</title>
 </head>
 <body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;background-color:#F8FAFC;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#F8FAFC;padding:40px 0;">
@@ -83,14 +85,14 @@ function renderTemplate({
             <td style="padding:40px;text-align:center;">
               ${logoHtml}
               
-              <h1 style="color:#0F172A;font-size:24px;font-weight:600;margin:0 0 8px 0;">New Support Ticket</h1>
+              <h1 style="color:#0F172A;font-size:24px;font-weight:600;margin:0 0 8px 0;">Ticket Assigned to You</h1>
               
               <div style="display:inline-block;background-color:${priorityBadge.bg};color:${priorityBadge.color};padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;margin:0 0 24px 0;">
                 ${priorityBadge.text}
               </div>
               
               <p style="color:#475569;font-size:16px;line-height:24px;margin:0 0 24px 0;">
-                A new support ticket has been created and requires your attention.
+                A support ticket has been assigned to you and requires your attention.
               </p>
               
               <div style="background-color:#F1F5F9;border-radius:6px;padding:16px;margin:24px 0;text-align:left;">
@@ -125,6 +127,14 @@ function renderTemplate({
                       <span style="color:#475569;margin-left:8px;">${fmtDate(created_at)}</span>
                     </td>
                   </tr>
+                  ${assigned_by_name ? `
+                  <tr>
+                    <td style="padding:8px 0;">
+                      <strong style="color:#0F172A;">Assigned by:</strong>
+                      <span style="color:#475569;margin-left:8px;">${assigned_by_name}</span>
+                    </td>
+                  </tr>
+                  ` : ''}
                   ${description_preview ? `
                   <tr>
                     <td style="padding:8px 0;">
@@ -146,7 +156,7 @@ function renderTemplate({
               
               <div style="margin:20px 0;padding-top:20px;border-top:1px solid #E2E8F0;">
                 <p style="color:#64748B;font-size:14px;line-height:20px;margin:0;">
-                  This is an automated notification. Please review and respond to the ticket in the support panel.
+                  This ticket has been assigned to you. Please review and respond promptly.
                 </p>
               </div>
               
@@ -191,32 +201,25 @@ Deno.serve(async (req: Request) => {
 
     const body = await req.json().catch(() => ({}));
     
-    // Support both webhook payload format and direct call format
-    // Webhook format: { type: 'INSERT', table: 'support_tickets', record: { id: '...', status: 'open', ... }, ... }
-    // Direct call format: { ticketId: '...' }
+    // Support webhook payload format
+    // Webhook format: { type: 'UPDATE', table: 'support_tickets', record: { id: '...', assigned_to: '...', ... }, ... }
     let ticketId: string | undefined;
-    let ticketStatus: string | undefined;
+    let assignedTo: string | undefined;
+    let oldAssignedTo: string | undefined;
     
     if (body.record && body.record.id) {
-      // Webhook payload format
       ticketId = body.record.id as string;
-      ticketStatus = body.record.status as string;
+      assignedTo = body.record.assigned_to as string;
+      oldAssignedTo = body.old?.assigned_to as string | undefined;
     } else if (body.ticketId) {
-      // Direct call format
       ticketId = body.ticketId as string;
+      assignedTo = body.assignedTo as string;
+      oldAssignedTo = body.oldAssignedTo as string | undefined;
     }
 
-    if (!ticketId) {
-      return new Response(JSON.stringify({ error: "Missing ticketId" }), {
+    if (!ticketId || !assignedTo) {
+      return new Response(JSON.stringify({ error: "Missing ticketId or assignedTo" }), {
         status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    
-    // If status is provided in webhook payload and it's not 'open', skip notification
-    if (ticketStatus && ticketStatus !== 'open') {
-      return new Response(JSON.stringify({ message: "Ticket is not open, skipping notification" }), {
-        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -225,10 +228,10 @@ Deno.serve(async (req: Request) => {
       auth: { persistSession: false },
     });
 
-    // Fetch ticket information
+    // Fetch ticket information first to check current state
     const { data: ticket, error: ticketErr } = await supabase
       .from("support_tickets")
-      .select("id,ticket_id,subject,description,category,priority,status,user_id,created_at")
+      .select("id,ticket_id,subject,description,category,priority,status,user_id,created_at,assigned_to")
       .eq("id", ticketId)
       .maybeSingle();
 
@@ -240,15 +243,75 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Only send for open tickets
-    if (ticket.status !== "open") {
-      return new Response(JSON.stringify({ message: "Ticket is not open, skipping notification" }), {
+    // Verify the ticket is assigned to the specified user
+    if (ticket.assigned_to !== assignedTo) {
+      return new Response(JSON.stringify({ message: "Ticket assignment mismatch, skipping notification" }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Fetch user information
+    // Deduplication: Check if assignment actually changed
+    // Only send if: (NULL -> value) OR (value1 -> value2 where value1 != value2)
+    // Skip if: (value -> same value) OR (NULL -> NULL)
+    const assignmentChanged = 
+      (oldAssignedTo === null || oldAssignedTo === undefined) && assignedTo !== null && assignedTo !== undefined
+      || (oldAssignedTo !== null && oldAssignedTo !== undefined && assignedTo !== null && assignedTo !== undefined && oldAssignedTo !== assignedTo);
+
+    if (!assignmentChanged && oldAssignedTo !== undefined && oldAssignedTo !== null) {
+      // If we have old value and it's the same, skip
+      return new Response(JSON.stringify({ message: "Assignment did not change, skipping notification" }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Additional deduplication: Check if we've sent an email for this ticket assignment recently (within last 60 seconds)
+    // This catches cases where webhook fires multiple times or old value is not provided
+    const sixtySecondsAgo = new Date(Date.now() - 60 * 1000).toISOString();
+    const { data: recentLogs, error: logCheckErr } = await supabase
+      .from("system_logs")
+      .select("id, created_at")
+      .eq("source", "edge/notify-ticket-assignment")
+      .eq("log_type", "info")
+      .eq("details->>ticket_id", ticketId)
+      .eq("details->>assigned_to", assignedTo)
+      .gte("created_at", sixtySecondsAgo)
+      .limit(1);
+
+    if (!logCheckErr && recentLogs && recentLogs.length > 0) {
+      return new Response(JSON.stringify({ message: "Email already sent recently for this assignment, skipping duplicate" }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Fetch assigned support agent information
+    const { data: assignedAgent, error: agentErr } = await supabase
+      .from("admin_users")
+      .select("role, profiles:user_id(email,first_name,last_name)")
+      .eq("user_id", assignedTo)
+      .eq("role", "support")
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (agentErr) throw agentErr;
+    if (!assignedAgent) {
+      return new Response(JSON.stringify({ message: "Assigned user is not an active support agent, skipping notification" }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const agentEmail = (assignedAgent.profiles as any)?.email;
+    if (!agentEmail) {
+      return new Response(JSON.stringify({ error: "Assigned agent email not found" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Fetch customer information
     const { data: user, error: userErr } = await supabase
       .from("profiles")
       .select("id,email,first_name,last_name")
@@ -260,35 +323,16 @@ Deno.serve(async (req: Request) => {
     const userName = `${user?.first_name || ""} ${user?.last_name || ""}`.trim() || user?.email || "User";
     const userEmail = user?.email || "unknown@example.com";
     
-    // Get admin panel URL from environment variable or construct from request origin
+    // Get admin panel URL
     const ADMIN_PANEL_URL = Deno.env.get("ADMIN_PANEL_URL") || "https://admin.spacel.app";
     const ticketUrl = `${ADMIN_PANEL_URL}/support-ticket-system?ticket=${ticketId}`;
 
-    // Fetch all admin emails (exclude support agents - they only get notified when assigned)
-    const { data: adminUsers, error: adminErr } = await supabase
-      .from("admin_users")
-      .select("role, profiles:user_id(email)")
-      .in("role", ["admin", "super_admin"])
-      .eq("is_active", true);
-
-    if (adminErr) throw adminErr;
-
-    if (!adminUsers || adminUsers.length === 0) {
-      return new Response(JSON.stringify({ error: "No admin or support users found" }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const recipientEmails = adminUsers
-      .map((u) => (u.profiles as any)?.email)
-      .filter((email): email is string => Boolean(email));
-
-    if (recipientEmails.length === 0) {
-      return new Response(JSON.stringify({ error: "No valid email addresses found" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    // Try to get who assigned the ticket (from old record if available)
+    let assignedByName: string | null = null;
+    if (body.old && body.old.assigned_to) {
+      // Ticket was reassigned, try to get the assigner
+      // This is a best-effort - we don't track who assigned it
+      assignedByName = "Admin";
     }
 
     const APP_LOGO_URL = Deno.env.get("APP_LOGO_URL");
@@ -304,12 +348,13 @@ Deno.serve(async (req: Request) => {
       description_preview: ticket.description || null,
       ticket_url: ticketUrl,
       logo_url: APP_LOGO_URL || null,
+      assigned_by_name: assignedByName,
     });
 
     const priorityPrefix = ticket.priority === "urgent" ? "🚨 URGENT: " : ticket.priority === "high" ? "⚠️ " : "";
-    const subject = `${priorityPrefix}New Support Ticket: ${ticket.subject || "No Subject"}`;
+    const subject = `${priorityPrefix}Ticket Assigned: ${ticket.subject || "No Subject"}`;
 
-    // Send email via Resend to all recipients
+    // Send email to the assigned support agent
     const resendRes = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -318,7 +363,7 @@ Deno.serve(async (req: Request) => {
       },
       body: JSON.stringify({
         from: "Spacel <hello@spacel.app>",
-        to: recipientEmails,
+        to: agentEmail,
         subject,
         html,
       }),
@@ -326,16 +371,16 @@ Deno.serve(async (req: Request) => {
 
     const resendData = await resendRes.json().catch(() => ({}));
     if (!resendRes.ok) {
-      // Log failure
       try {
         await supabase.from("system_logs").insert({
           log_type: "error",
           severity: "high",
-          source: "edge/notify-new-ticket",
-          message: "Resend API error while sending new ticket notification",
+          source: "edge/notify-ticket-assignment",
+          message: "Resend API error while sending ticket assignment notification",
           details: { 
             ticket_id: ticketId, 
-            recipient_count: recipientEmails.length,
+            assigned_to: assignedTo,
+            recipient: agentEmail,
             resend: resendData 
           },
           created_at: new Date().toISOString(),
@@ -358,13 +403,13 @@ Deno.serve(async (req: Request) => {
       await supabase.from("system_logs").insert({
         log_type: "info",
         severity: "info",
-        source: "edge/notify-new-ticket",
-        message: "New ticket notification emails sent",
+        source: "edge/notify-ticket-assignment",
+        message: "Ticket assignment notification email sent",
         details: {
           ticket_id: ticketId,
           ticket_subject: ticket.subject,
-          recipient_count: recipientEmails.length,
-          recipients: recipientEmails,
+          assigned_to: assignedTo,
+          recipient: agentEmail,
           priority: ticket.priority,
           resend: resendData,
         },
@@ -374,7 +419,7 @@ Deno.serve(async (req: Request) => {
       // ignore logging failures
     }
 
-    return new Response(JSON.stringify({ ok: true, recipients: recipientEmails.length, resend: resendData }), {
+    return new Response(JSON.stringify({ ok: true, recipient: agentEmail, resend: resendData }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -386,5 +431,4 @@ Deno.serve(async (req: Request) => {
     });
   }
 });
-
 

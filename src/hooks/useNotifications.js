@@ -15,6 +15,8 @@ export const useNotifications = () => {
   // Track notifications that have already played sound to prevent duplicate sounds
   // Use useRef to persist across renders
   const soundPlayedForNotifications = useRef(new Set())
+  // Track if initial load is complete to prevent sounds on page load
+  const initialLoadComplete = useRef(false)
   
   // Helper function to check and mark sound as played
   const playSoundIfNotPlayed = useCallback((notificationId) => {
@@ -41,49 +43,66 @@ export const useNotifications = () => {
         
         // Store previous state for comparison
         setNotifications(prev => {
-          // Check if there are new unread notifications (for sound playback)
-          // This handles the case where real-time isn't working
-          const previousUnreadCount = prev.filter(n => !n.read).length
-          const hasNewNotifications = result.data.length > prev.length
-          const hasNewUnread = unread > previousUnreadCount
+          // Check if this is the initial load (prev is empty)
+          const isInitialLoad = prev.length === 0
           
-          if (hasNewNotifications && hasNewUnread) {
-            // Find the newest notification that wasn't in the previous list
-            const newNotifications = result.data.filter(n => 
-              !prev.some(pn => pn.id === n.id) && !n.read
-            )
+          // Mark initial load as complete after first fetch
+          if (isInitialLoad) {
+            initialLoadComplete.current = true
+            // Mark all existing notifications as "sound played" to prevent sounds on initial load
+            result.data.forEach(n => {
+              soundPlayedForNotifications.current.add(n.id)
+            })
+            console.log('📋 Initial load complete - sounds disabled for existing notifications')
+          }
+          
+          // Only check for new notifications if initial load is complete
+          // This prevents sounds from playing when user first opens the web
+          if (initialLoadComplete.current && !isInitialLoad) {
+            // Check if there are new unread notifications (for sound playback)
+            // This handles the case where real-time isn't working
+            const previousUnreadCount = prev.filter(n => !n.read).length
+            const hasNewNotifications = result.data.length > prev.length
+            const hasNewUnread = unread > previousUnreadCount
             
-            if (newNotifications.length > 0) {
-              const newestNotification = newNotifications[0]
-              console.log('🔔 New notification detected via fetch (real-time may not be working):', newestNotification.id)
+            if (hasNewNotifications && hasNewUnread) {
+              // Find the newest notification that wasn't in the previous list
+              const newNotifications = result.data.filter(n => 
+                !prev.some(pn => pn.id === n.id) && !n.read
+              )
               
-              // Play sound notification if enabled (only once per notification)
-              const notificationId = newestNotification.id
-              
-              // Check if we've already played sound for this notification
-              if (!soundPlayedForNotifications.current.has(notificationId)) {
-                soundPlayedForNotifications.current.add(notificationId)
+              if (newNotifications.length > 0) {
+                const newestNotification = newNotifications[0]
+                console.log('🔔 New notification detected via fetch (real-time may not be working):', newestNotification.id)
                 
-                // Play sound notification if enabled (use setTimeout to avoid blocking state update)
-                setTimeout(() => {
-                  console.log('🔊 Checking sound notification preference...')
-                  isSoundNotificationEnabled(user.id).then(enabled => {
-                    console.log('🔊 Sound notification enabled:', enabled)
-                    if (enabled) {
-                      console.log('🔊 Playing notification sound (fallback - from fetch)...')
+                // Play sound notification if enabled (only once per notification)
+                const notificationId = newestNotification.id
+                
+                // Check if we've already played sound for this notification
+                if (!soundPlayedForNotifications.current.has(notificationId)) {
+                  soundPlayedForNotifications.current.add(notificationId)
+                  
+                  // Play sound notification if enabled (use setTimeout to avoid blocking state update)
+                  setTimeout(() => {
+                    console.log('🔊 Checking sound notification preference...')
+                    isSoundNotificationEnabled(user.id).then(enabled => {
+                      console.log('🔊 Sound notification enabled:', enabled)
+                      if (enabled) {
+                        console.log('🔊 Playing notification sound (fallback - from fetch)...')
+                        playNotificationSound()
+                      } else {
+                        console.log('🔇 Sound notifications disabled by user')
+                      }
+                    }).catch(err => {
+                      console.warn('Error checking sound notification preference:', err)
+                      // Default to playing sound if we can't check preference
+                      console.log('🔊 Playing sound (default - preference check failed)')
                       playNotificationSound()
-                    } else {
-                      console.log('🔇 Sound notifications disabled by user')
-                    }
-                  }).catch(err => {
-                    console.warn('Error checking sound notification preference:', err)
-                    // Default to playing sound if we can't check preference
-                    console.log('🔊 Playing sound (default - preference check failed)')
-                    playNotificationSound()
-                  })
-                }, 100)
-              } else {
-                console.log('🔇 Sound already played for this notification (fallback), skipping')
+                    })
+                  }, 100)
+                } else {
+                  console.log('🔇 Sound already played for this notification (fallback), skipping')
+                }
               }
             }
           }
@@ -218,7 +237,16 @@ export const useNotifications = () => {
 
   // Set up real-time subscription
   useEffect(() => {
-    if (!user?.id) return
+    if (!user?.id) {
+      // Reset initial load flag when user logs out
+      initialLoadComplete.current = false
+      soundPlayedForNotifications.current.clear()
+      return
+    }
+
+    // Reset initial load flag when user changes (e.g., different user logs in)
+    initialLoadComplete.current = false
+    soundPlayedForNotifications.current.clear()
 
     // Initial fetch
     fetchNotifications()
@@ -390,34 +418,9 @@ export const useNotifications = () => {
               console.log('🔇 Sound already played for this notification, skipping')
             }
             
-            // Send email notification if this is a pending listing or new ticket notification
-            // This triggers email notifications immediately when the notification is received
-            if (notification.activity_type) {
-              const activityType = notification.activity_type;
-              const data = notification.data || {};
-              
-              if (activityType === 'listing_pending' || activityType === 'listing_resubmitted') {
-                // Send email for pending listing
-                const listingId = data.listing_id;
-                if (listingId) {
-                  console.log('📧 Sending email notification for pending listing:', listingId);
-                  EmailNotificationService.sendPendingListingNotificationImmediate(listingId)
-                    .catch(err => {
-                      console.error('Error sending pending listing email:', err);
-                    });
-                }
-              } else if (activityType === 'ticket') {
-                // Send email for new support ticket
-                const ticketId = data.ticket_id;
-                if (ticketId) {
-                  console.log('📧 Sending email notification for new ticket:', ticketId);
-                  EmailNotificationService.sendNewTicketNotificationImmediate(ticketId)
-                    .catch(err => {
-                      console.error('Error sending new ticket email:', err);
-                    });
-                }
-              }
-            }
+            // Note: Email notifications are handled by the queue processor (useEmailNotificationQueue)
+            // The database trigger already queues the email, so we don't need to send it again here
+            // This prevents duplicate emails from being sent
           }
         }
       }

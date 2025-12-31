@@ -14,10 +14,12 @@ class EmailNotificationService {
   static async processNotificationQueue() {
     try {
       // Fetch unprocessed notifications (limit to 50 at a time)
+      // Exclude notifications created in the last 5 seconds to give direct database calls time to complete
       const { data: notifications, error: fetchError } = await supabase
         .from('email_notification_queue')
         .select('*')
         .is('processed_at', null)
+        .lt('created_at', new Date(Date.now() - 5000).toISOString()) // Only process notifications older than 5 seconds
         .order('created_at', { ascending: true })
         .limit(50);
 
@@ -35,6 +37,18 @@ class EmailNotificationService {
       // Process each notification
       for (const notification of notifications) {
         try {
+          // Double-check that notification hasn't been processed (race condition protection)
+          const { data: checkData, error: checkError } = await supabase
+            .from('email_notification_queue')
+            .select('processed_at')
+            .eq('id', notification.id)
+            .single();
+          
+          if (checkError || (checkData && checkData.processed_at)) {
+            logDebug(`Notification ${notification.id} already processed, skipping`);
+            continue; // Skip if already processed
+          }
+          
           await this.processNotification(notification);
           
           // Mark as processed
@@ -42,7 +56,7 @@ class EmailNotificationService {
             .from('email_notification_queue')
             .update({ 
               processed_at: new Date().toISOString(),
-              attempts: notification.attempts + 1
+              attempts: (notification.attempts || 0) + 1
             })
             .eq('id', notification.id);
             
@@ -152,4 +166,5 @@ class EmailNotificationService {
 }
 
 export default EmailNotificationService;
+
 

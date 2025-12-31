@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import AdminSidebar from '../../components/ui/AdminSidebar';
 import UserProfileDropdown from '../../components/ui/UserProfileDropdown';
 import NotificationBell from '../../components/NotificationBell';
@@ -20,6 +21,7 @@ import LoadingState from '../../components/ui/LoadingState';
 import { useSidebar } from '../../contexts/SidebarContext';
 
 const SpaceManagement = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [selectedSpaces, setSelectedSpaces] = useState([]);
   const [selectedSpace, setSelectedSpace] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -164,7 +166,31 @@ const SpaceManagement = () => {
   const handleViewDetails = (space) => {
     setSelectedSpace(space);
     setIsModalOpen(true);
+    // Update URL to include listing parameter
+    setSearchParams({ listing: space.id });
   };
+
+  // Handle URL query parameter to open listing modal
+  useEffect(() => {
+    const listingId = searchParams.get('listing');
+    if (listingId && spaces.length > 0 && !selectedSpace) {
+      const space = spaces.find(s => s.id === listingId);
+      if (space) {
+        setSelectedSpace(space);
+        setIsModalOpen(true);
+      }
+    }
+  }, [searchParams, spaces, selectedSpace]);
+
+  // Clean up URL when modal closes
+  useEffect(() => {
+    if (!isModalOpen && !selectedSpace) {
+      const listingId = searchParams.get('listing');
+      if (listingId) {
+        setSearchParams({});
+      }
+    }
+  }, [isModalOpen, selectedSpace, searchParams, setSearchParams]);
 
   const handleSuspendQuick = (space) => {
     setSuspendTargetSpace(space);
@@ -472,6 +498,8 @@ const SpaceManagement = () => {
         onClose={() => {
           setIsModalOpen(false);
           setSelectedSpace(null);
+          // Remove listing parameter from URL
+          setSearchParams({});
         }}
         onApprove={handleApprove}
         onReject={handleReject}

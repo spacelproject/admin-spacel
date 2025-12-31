@@ -105,8 +105,8 @@ BEGIN
     )
   );
 
-  -- Queue email notification (will be processed by application code or webhook)
-  PERFORM queue_pending_listing_email_notification(NEW.id);
+  -- Email notifications are handled by Database Webhooks (see WEBHOOK_SETUP_GUIDE.md)
+  -- No queue needed - webhooks call Edge Functions directly
 
   RETURN NEW;
 END;
@@ -144,8 +144,8 @@ BEGIN
     )
   );
 
-  -- Queue email notification (will be processed by application code or webhook)
-  PERFORM queue_new_ticket_email_notification(NEW.id);
+  -- Email notifications are handled by Database Webhooks (see WEBHOOK_SETUP_GUIDE.md)
+  -- No queue needed - webhooks call Edge Functions directly
 
   RETURN NEW;
 END;

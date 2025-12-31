@@ -6,6 +6,7 @@ import NotificationsDropdown from './NotificationsDropdown'
 const NotificationBell = () => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const { unreadCount } = useNotifications()
+  // Email notifications are handled by Database Webhooks - no queue processing needed
 
   const handleBellClick = () => {
     setIsDropdownOpen(!isDropdownOpen)

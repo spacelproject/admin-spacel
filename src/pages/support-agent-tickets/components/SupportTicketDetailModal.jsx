@@ -147,13 +147,13 @@ const SupportTicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
               } else {
                 // If we can't fetch the full reply, fallback to refetching all
                 console.warn('Could not fetch new reply details, refetching all:', replyError);
-                fetchReplies();
+            fetchReplies();
               }
             } catch (error) {
               console.error('Error processing new reply:', error);
               // Fallback to refetching all replies
-              fetchReplies();
-            }
+            fetchReplies();
+          }
           } else if (payload.eventType === 'UPDATE' && payload.new) {
             // Reply was updated - update it in state
             setReplies(prevReplies => 

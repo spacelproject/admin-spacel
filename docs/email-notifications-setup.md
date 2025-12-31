@@ -207,3 +207,4 @@ Potential improvements:
 - Email digest (daily summary of notifications)
 - Different email templates for different notification types
 
+

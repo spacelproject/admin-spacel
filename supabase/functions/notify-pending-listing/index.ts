@@ -150,11 +150,33 @@ Deno.serve(async (req: Request) => {
     }
 
     const body = await req.json().catch(() => ({}));
-    const listingId = body.listingId as string | undefined;
+    
+    // Support both webhook payload format and direct call format
+    // Webhook format: { type: 'INSERT'|'UPDATE', table: 'listings', record: { id: '...', status: 'pending', ... }, ... }
+    // Direct call format: { listingId: '...' }
+    let listingId: string | undefined;
+    let listingStatus: string | undefined;
+    
+    if (body.record && body.record.id) {
+      // Webhook payload format
+      listingId = body.record.id as string;
+      listingStatus = body.record.status as string;
+    } else if (body.listingId) {
+      // Direct call format
+      listingId = body.listingId as string;
+    }
 
     if (!listingId) {
       return new Response(JSON.stringify({ error: "Missing listingId" }), {
         status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    
+    // If status is provided in webhook payload and it's not 'pending', skip notification
+    if (listingStatus && listingStatus !== 'pending') {
+      return new Response(JSON.stringify({ message: "Listing is not pending, skipping notification" }), {
+        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -166,7 +188,7 @@ Deno.serve(async (req: Request) => {
     // Fetch listing and partner information
     const { data: listing, error: listingErr } = await supabase
       .from("listings")
-      .select("id,name,partner_id,status,rejected_at,created_at")
+      .select("id,name,partner_id,status,rejected_at,created_at,updated_at,submitted_at")
       .eq("id", listingId)
       .maybeSingle();
 
@@ -189,13 +211,21 @@ Deno.serve(async (req: Request) => {
 
     const partnerName = `${partner?.first_name || ""} ${partner?.last_name || ""}`.trim() || "Partner";
     const isResubmission = listing.rejected_at !== null;
-    const listingUrl = `${SUPABASE_URL.replace('/rest/v1', '')}/admin/space-management?listing=${listingId}`;
+    
+    // Use the latest submission time: submitted_at > updated_at (for resubmissions) > created_at
+    const submittedTime = listing.submitted_at || 
+                         (isResubmission ? listing.updated_at : null) || 
+                         listing.created_at;
+    
+    // Get admin panel URL from environment variable or construct from request origin
+    const ADMIN_PANEL_URL = Deno.env.get("ADMIN_PANEL_URL") || "https://admin.spacel.app";
+    const listingUrl = `${ADMIN_PANEL_URL}/space-management?listing=${listingId}`;
 
-    // Fetch all admin and support agent emails
+    // Fetch all admin emails (exclude support agents - they don't receive pending listing notifications)
     const { data: adminUsers, error: adminErr } = await supabase
       .from("admin_users")
-      .select("email,role")
-      .in("role", ["admin", "super_admin", "support"])
+      .select("role, profiles:user_id(email)")
+      .in("role", ["admin", "super_admin"])
       .eq("is_active", true);
 
     if (adminErr) throw adminErr;
@@ -207,7 +237,9 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const recipientEmails = adminUsers.map((u) => u.email).filter(Boolean);
+    const recipientEmails = adminUsers
+      .map((u) => (u.profiles as any)?.email)
+      .filter((email): email is string => Boolean(email));
 
     if (recipientEmails.length === 0) {
       return new Response(JSON.stringify({ error: "No valid email addresses found" }), {
@@ -222,7 +254,7 @@ Deno.serve(async (req: Request) => {
       listing_name: listing.name || "Unnamed Listing",
       partner_name: partnerName,
       is_resubmission: isResubmission,
-      created_at: listing.created_at || new Date().toISOString(),
+      created_at: submittedTime || new Date().toISOString(),
       listing_url: listingUrl,
       logo_url: APP_LOGO_URL || null,
     });
@@ -308,4 +340,5 @@ Deno.serve(async (req: Request) => {
     });
   }
 });
+
 

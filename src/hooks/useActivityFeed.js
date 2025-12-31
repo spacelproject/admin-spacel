@@ -914,8 +914,8 @@ export const useActivityFeed = () => {
       const uniqueActivities = sortedActivities
         .filter(activity => activity.type !== 'message_sent') // Remove "New Message Sent" activities
         .filter((activity, index, self) =>
-          index === self.findIndex(a => a.id === activity.id)
-        )
+        index === self.findIndex(a => a.id === activity.id)
+      )
 
       setAllActivities(uniqueActivities)
       setDisplayedActivities(uniqueActivities.slice(0, 4)) // Always start with 4

@@ -219,9 +219,9 @@ const SupportAgentTickets = () => {
           console.log('🔄 New reply received in tickets list:', payload.eventType);
           // Only refresh if it's a new message (INSERT) to avoid unnecessary refreshes
           if (payload.eventType === 'INSERT') {
-            // Refresh to update unread counts and stats
+          // Refresh to update unread counts and stats
             // The modal will handle its own real-time updates
-            fetchMyTickets()
+          fetchMyTickets()
           }
         })
         .subscribe((status) => {

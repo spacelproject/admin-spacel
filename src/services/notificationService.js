@@ -264,6 +264,192 @@ class NotificationService {
     return uuidRegex.test(str)
   }
 
+  // Send listing approval notification to partner
+  static async sendListingApprovalNotification(listingData, partnerId) {
+    try {
+      if (!listingData || !partnerId) {
+        return { success: false, error: 'Missing listing data or partner ID' }
+      }
+
+      const { data, error } = await supabase
+        .from('notifications')
+        .insert({
+          user_id: partnerId,
+          type: 'listing_approved',
+          title: 'Listing Approved',
+          message: `Your listing "${listingData.name || 'Listing'}" has been approved and is now live!`,
+          data: {
+            listing_id: listingData.id,
+            listing_name: listingData.name,
+            action_url: `/listings/${listingData.id}`,
+            status: 'active'
+          },
+          read: false,
+          created_at: new Date().toISOString()
+        })
+        .select()
+        .single()
+
+      if (error) {
+        console.error('Error sending listing approval notification:', error)
+        return { success: false, error: error.message }
+      }
+
+      console.log('✅ Listing approval notification sent:', data)
+      return { success: true, data }
+    } catch (error) {
+      console.error('Error in sendListingApprovalNotification:', error)
+      return { success: false, error: error.message }
+    }
+  }
+
+  // Send listing rejection notification to partner
+  static async sendListingRejectionNotification(listingData, partnerId, rejectionReason) {
+    try {
+      if (!listingData || !partnerId) {
+        return { success: false, error: 'Missing listing data or partner ID' }
+      }
+
+      const { data, error } = await supabase
+        .from('notifications')
+        .insert({
+          user_id: partnerId,
+          type: 'listing_rejected',
+          title: 'Listing Rejected',
+          message: `Your listing "${listingData.name || 'Listing'}" has been rejected. ${rejectionReason || 'Please review and resubmit.'}`,
+          data: {
+            listing_id: listingData.id,
+            listing_name: listingData.name,
+            action_url: `/listings/${listingData.id}/edit`,
+            status: 'rejected',
+            rejection_reason: rejectionReason
+          },
+          read: false,
+          created_at: new Date().toISOString()
+        })
+        .select()
+        .single()
+
+      if (error) {
+        console.error('Error sending listing rejection notification:', error)
+        return { success: false, error: error.message }
+      }
+
+      console.log('✅ Listing rejection notification sent:', data)
+      return { success: true, data }
+    } catch (error) {
+      console.error('Error in sendListingRejectionNotification:', error)
+      return { success: false, error: error.message }
+    }
+  }
+
+  // Generic method to send a notification
+  static async sendNotification(userId, notificationData) {
+    try {
+      if (!userId || !notificationData) {
+        return { success: false, error: 'Missing userId or notification data' }
+      }
+
+      const { data, error } = await supabase
+        .from('notifications')
+        .insert({
+          user_id: userId,
+          type: notificationData.type || 'general',
+          title: notificationData.title || 'Notification',
+          message: notificationData.message || '',
+          data: notificationData.data || {},
+          read: false,
+          created_at: new Date().toISOString()
+        })
+        .select()
+        .single()
+
+      if (error) {
+        console.error('Error sending notification:', error)
+        return { success: false, error: error.message }
+      }
+
+      console.log('✅ Notification sent:', data)
+      return { success: true, data }
+    } catch (error) {
+      console.error('Error in sendNotification:', error)
+      return { success: false, error: error.message }
+    }
+  }
+
+  // Send payout disabled notification to partner
+  static async sendPayoutDisabledNotification(userId, reason) {
+    try {
+      if (!userId) {
+        return { success: false, error: 'Missing userId' }
+      }
+
+      const { data, error } = await supabase
+        .from('notifications')
+        .insert({
+          user_id: userId,
+          type: 'payout_disabled',
+          title: 'Payouts Disabled',
+          message: `Your payouts have been disabled. ${reason || 'Please contact support for more information.'}`,
+          data: {
+            reason: reason,
+            action_url: '/settings/payouts'
+          },
+          read: false,
+          created_at: new Date().toISOString()
+        })
+        .select()
+        .single()
+
+      if (error) {
+        console.error('Error sending payout disabled notification:', error)
+        return { success: false, error: error.message }
+      }
+
+      console.log('✅ Payout disabled notification sent:', data)
+      return { success: true, data }
+    } catch (error) {
+      console.error('Error in sendPayoutDisabledNotification:', error)
+      return { success: false, error: error.message }
+    }
+  }
+
+  // Send payout enabled notification to partner
+  static async sendPayoutEnabledNotification(userId) {
+    try {
+      if (!userId) {
+        return { success: false, error: 'Missing userId' }
+      }
+
+      const { data, error } = await supabase
+        .from('notifications')
+        .insert({
+          user_id: userId,
+          type: 'payout_enabled',
+          title: 'Payouts Enabled',
+          message: 'Your payouts have been enabled. You can now receive payments for your listings.',
+          data: {
+            action_url: '/settings/payouts'
+          },
+          read: false,
+          created_at: new Date().toISOString()
+        })
+        .select()
+        .single()
+
+      if (error) {
+        console.error('Error sending payout enabled notification:', error)
+        return { success: false, error: error.message }
+      }
+
+      console.log('✅ Payout enabled notification sent:', data)
+      return { success: true, data }
+    } catch (error) {
+      console.error('Error in sendPayoutEnabledNotification:', error)
+      return { success: false, error: error.message }
+    }
+  }
+
   // Subscribe to real-time notifications (includes admin activities)
   static subscribeToNotifications(userId, callback) {
     console.log('🔔 Setting up real-time subscription for user:', userId)

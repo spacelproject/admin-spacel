@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import AdminSidebar from '../../components/ui/AdminSidebar';
 import BreadcrumbNavigation from '../../components/ui/BreadcrumbNavigation';
 import UserProfileDropdown from '../../components/ui/UserProfileDropdown';
@@ -17,6 +18,7 @@ import TicketDetailModal from './components/TicketDetailModal';
 import AssignmentPanel from './components/AssignmentPanel';
 
 const SupportTicketSystem = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const { showToast } = useToast();
   const { supportAgents, loading: agentsLoading } = useSupportAgents();
   const { tickets: allTickets, loading: ticketsLoading, refetch: refetchTickets } = useSupportTickets();
@@ -169,7 +171,31 @@ const SupportTicketSystem = () => {
   const handleTicketSelect = (ticket) => {
     setSelectedTicket(ticket);
     setIsDetailModalOpen(true);
+    // Update URL to include ticket parameter
+    setSearchParams({ ticket: ticket.dbId || ticket.id });
   };
+
+  // Handle URL query parameter to open ticket modal
+  useEffect(() => {
+    const ticketId = searchParams.get('ticket');
+    if (ticketId && allTickets.length > 0 && !selectedTicket) {
+      const ticket = allTickets.find(t => (t.dbId === ticketId) || (t.id === ticketId));
+      if (ticket) {
+        setSelectedTicket(ticket);
+        setIsDetailModalOpen(true);
+      }
+    }
+  }, [searchParams, allTickets, selectedTicket]);
+
+  // Clean up URL when modal closes
+  useEffect(() => {
+    if (!isDetailModalOpen && !selectedTicket) {
+      const ticketId = searchParams.get('ticket');
+      if (ticketId) {
+        setSearchParams({});
+      }
+    }
+  }, [isDetailModalOpen, selectedTicket, searchParams, setSearchParams]);
 
   const handleTicketUpdate = (updatedTicket) => {
     // The real-time subscription will handle the update
@@ -445,6 +471,8 @@ const SupportTicketSystem = () => {
         onClose={() => {
           setIsDetailModalOpen(false);
           setSelectedTicket(null);
+          // Remove ticket parameter from URL
+          setSearchParams({});
         }}
         onUpdate={handleTicketUpdate}
       />

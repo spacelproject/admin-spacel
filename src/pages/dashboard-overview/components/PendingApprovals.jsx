@@ -15,6 +15,7 @@ const PendingApprovals = ({ onModalStateChange }) => {
   const [showViewSheet, setShowViewSheet] = useState(false);
   const [showImagePreview, setShowImagePreview] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [rejectionReason, setRejectionReason] = useState('');
   const [adminNotes, setAdminNotes] = useState('');
   const [showSuccessState, setShowSuccessState] = useState(null); // 'approved' or 'rejected'
@@ -158,15 +159,32 @@ const PendingApprovals = ({ onModalStateChange }) => {
 
   const handleViewSpace = (item) => {
     setSelectedItem(item);
+    setCurrentImageIndex(0); // Reset to first image
     setShowViewSheet(true);
+  };
+
+  const nextImage = () => {
+    const images = selectedItem?.listingData?.images || [];
+    if (images.length > 0) {
+      setCurrentImageIndex((prev) => (prev + 1) % images.length);
+    }
+  };
+
+  const prevImage = () => {
+    const images = selectedItem?.listingData?.images || [];
+    if (images.length > 0) {
+      setCurrentImageIndex((prev) => (prev - 1 + images.length) % images.length);
+    }
   };
 
   const closeAllSheets = () => {
     setShowViewSheet(false);
     setShowApproveSheet(false);
     setShowRejectSheet(false);
+    setShowImagePreview(false);
     setShowSuccessState(null);
     setSelectedItem(null);
+    setCurrentImageIndex(0);
     setRejectionReason('');
     setAdminNotes('');
   };
@@ -320,6 +338,7 @@ const PendingApprovals = ({ onModalStateChange }) => {
         onClose={() => {
           setShowViewSheet(false);
           setSelectedItem(null);
+          setCurrentImageIndex(0);
         }}
         side="right"
         className="flex flex-col"
@@ -328,6 +347,7 @@ const PendingApprovals = ({ onModalStateChange }) => {
           onClose={() => {
             setShowViewSheet(false);
             setSelectedItem(null);
+            setCurrentImageIndex(0);
           }}
         >
               <div>
@@ -339,21 +359,93 @@ const PendingApprovals = ({ onModalStateChange }) => {
         <SheetContent>
           {selectedItem && (
             <>
-              {/* Space Image and Header */}
+              {/* Space Image Gallery and Header */}
               <div className="mb-5">
-                <div 
-                  className="relative w-32 h-32 rounded-lg overflow-hidden mb-4 bg-gray-100 cursor-pointer hover:opacity-90 transition-opacity group"
-                  onClick={() => setShowImagePreview(true)}
-                >
-                  <Image
-                    src={selectedItem?.image || '/assets/images/no_image.png'}
-                    alt={selectedItem?.title}
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all flex items-center justify-center">
-                    <Icon name="Maximize2" size={24} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                {/* Main Image Display */}
+                <div className="relative mb-4">
+                  <div 
+                    className="relative w-full aspect-[4/3] rounded-lg overflow-hidden bg-gray-100 cursor-pointer hover:opacity-90 transition-opacity group"
+                    onClick={() => setShowImagePreview(true)}
+                  >
+                    {(() => {
+                      const images = selectedItem?.listingData?.images || [];
+                      const currentImage = images.length > 0 ? images[currentImageIndex] : null;
+                      return (
+                        <Image
+                          src={currentImage || selectedItem?.image || '/assets/images/no_image.png'}
+                          alt={selectedItem?.title}
+                          className="w-full h-full object-cover"
+                        />
+                      );
+                    })()}
+                    <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all flex items-center justify-center">
+                      <Icon name="Maximize2" size={24} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                    
+                    {/* Navigation Arrows - Only show if multiple images */}
+                    {(() => {
+                      const images = selectedItem?.listingData?.images || [];
+                      if (images.length > 1) {
+                        return (
+                          <>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                prevImage();
+                              }}
+                              className="absolute left-3 top-1/2 -translate-y-1/2 bg-black/55 text-white p-1.5 rounded-full hover:bg-black/75 transition-smooth z-10"
+                            >
+                              <Icon name="ChevronLeft" size={18} />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                nextImage();
+                              }}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 bg-black/55 text-white p-1.5 rounded-full hover:bg-black/75 transition-smooth z-10"
+                            >
+                              <Icon name="ChevronRight" size={18} />
+                            </button>
+                            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/60 text-white px-2.5 py-1 rounded-full text-[11px] font-medium z-10">
+                              {currentImageIndex + 1} / {images.length}
+                            </div>
+                          </>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
+
+                  {/* Thumbnail Gallery */}
+                  {(() => {
+                    const images = selectedItem?.listingData?.images || [];
+                    if (images.length > 1) {
+                      return (
+                        <div className="flex gap-2 mt-3 overflow-x-auto pb-2">
+                          {images.map((image, index) => (
+                            <div
+                              key={index}
+                              onClick={() => setCurrentImageIndex(index)}
+                              className={`flex-shrink-0 w-20 h-20 rounded-lg overflow-hidden cursor-pointer border-2 transition-all ${
+                                index === currentImageIndex
+                                  ? 'border-primary ring-2 ring-primary/20'
+                                  : 'border-gray-200 hover:border-gray-300'
+                              }`}
+                            >
+                              <Image
+                                src={image || '/assets/images/no_image.png'}
+                                alt={`${selectedItem?.title} - Image ${index + 1}`}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
+
                 <div>
                   <h4 className="text-xl font-bold text-gray-900 mb-2">{selectedItem?.title}</h4>
                   <p className="text-sm text-gray-600 leading-relaxed mb-3">{selectedItem?.description}</p>
@@ -444,31 +536,62 @@ const PendingApprovals = ({ onModalStateChange }) => {
       </Sheet>
 
       {/* Image Preview Modal */}
-      {showImagePreview && selectedItem && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-[60] p-4"
-          onClick={() => setShowImagePreview(false)}
-        >
-          <div className="relative max-w-4xl max-h-[90vh] w-full">
-            <button
-              onClick={() => setShowImagePreview(false)}
-              className="absolute top-4 right-4 p-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-full text-white transition-colors z-10"
-            >
-              <Icon name="X" size={24} />
-            </button>
-            <Image
-              src={selectedItem?.image || '/assets/images/no_image.png'}
-              alt={selectedItem?.title}
-              className="w-full h-full object-contain rounded-lg"
-            />
-            <div className="absolute bottom-4 left-4 right-4 text-center">
-              <p className="text-white text-lg font-semibold bg-black bg-opacity-50 px-4 py-2 rounded-lg inline-block">
-                {selectedItem?.title}
-              </p>
+      {showImagePreview && selectedItem && (() => {
+        const images = selectedItem?.listingData?.images || [];
+        const currentImage = images.length > 0 ? images[currentImageIndex] : null;
+        const displayImage = currentImage || selectedItem?.image || '/assets/images/no_image.png';
+        
+        return (
+          <div 
+            className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-[60] p-4"
+            onClick={() => setShowImagePreview(false)}
+          >
+            <div className="relative max-w-4xl max-h-[90vh] w-full">
+              <button
+                onClick={() => setShowImagePreview(false)}
+                className="absolute top-4 right-4 p-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-full text-white transition-colors z-10"
+              >
+                <Icon name="X" size={24} />
+              </button>
+              
+              {/* Navigation in preview */}
+              {images.length > 1 && (
+                <>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      prevImage();
+                    }}
+                    className="absolute left-4 top-1/2 -translate-y-1/2 p-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-full text-white transition-colors z-10"
+                  >
+                    <Icon name="ChevronLeft" size={24} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      nextImage();
+                    }}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 p-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-full text-white transition-colors z-10"
+                  >
+                    <Icon name="ChevronRight" size={24} />
+                  </button>
+                </>
+              )}
+              
+              <Image
+                src={displayImage}
+                alt={selectedItem?.title}
+                className="w-full h-full object-contain rounded-lg"
+              />
+              <div className="absolute bottom-4 left-4 right-4 text-center">
+                <p className="text-white text-lg font-semibold bg-black bg-opacity-50 px-4 py-2 rounded-lg inline-block">
+                  {selectedItem?.title} {images.length > 1 ? `(${currentImageIndex + 1} / ${images.length})` : ''}
+                </p>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Approval Sheet */}
       <Sheet 

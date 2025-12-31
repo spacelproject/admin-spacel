@@ -166,9 +166,15 @@ const SpaceDetailsModal = ({ space, isOpen, onClose, onApprove, onReject, onSusp
                     </dd>
                   </div>
                   <div className="flex items-center justify-between gap-6 py-2 border-b border-border/50">
-                    <dt className="text-muted-foreground">Price</dt>
+                    <dt className="text-muted-foreground">Price per hour</dt>
                     <dd className="text-foreground font-semibold text-right">
-                      A${space.price}/hour
+                      A${space.price || space.hourly_price || 0}/hour
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-6 py-2 border-b border-border/50">
+                    <dt className="text-muted-foreground">Price per day</dt>
+                    <dd className="text-foreground font-semibold text-right">
+                      A${space.price_per_day || space.daily_price || 0}/day
                     </dd>
                   </div>
                   <div className="flex items-center justify-between gap-6 py-2">

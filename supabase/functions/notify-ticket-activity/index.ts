@@ -1,12 +1,13 @@
-// Supabase Edge Function: notify-new-ticket
-// Sends email notifications to admins and support agents when a new support ticket is created
+// Supabase Edge Function: notify-ticket-activity
+// Sends email notifications to assigned support agents when there's activity on their tickets
+// Activity includes: customer messages, priority changes, internal notes
 //
 // Required secrets (Supabase Dashboard → Project Settings → Functions → Secrets):
 // - RESEND_API_KEY
 // - SUPABASE_URL
 // - SUPABASE_SERVICE_ROLE_KEY
 //
-// This function can be called from database triggers using pg_net or from the frontend
+// This function is called from database webhooks on ticket activity
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -40,25 +41,21 @@ function getPriorityBadge(priority: string) {
 function renderTemplate({
   ticket_subject,
   ticket_id,
-  user_name,
-  user_email,
-  category,
+  activity_type,
+  activity_message,
   priority,
-  created_at,
-  description_preview,
   ticket_url,
   logo_url,
+  is_internal,
 }: {
   ticket_subject: string;
   ticket_id: string;
-  user_name: string;
-  user_email: string;
-  category: string;
+  activity_type: "message" | "priority_change" | "internal_note";
+  activity_message: string;
   priority: string;
-  created_at: string;
-  description_preview?: string | null;
   ticket_url?: string | null;
   logo_url?: string | null;
+  is_internal?: boolean;
 }) {
   const logoHtml = logo_url 
     ? `<img src="${logo_url}" alt="Spacel" style="max-width:120px;height:auto;display:block;margin:0 auto 20px;" />`
@@ -67,12 +64,28 @@ function renderTemplate({
   const priorityBadge = getPriorityBadge(priority);
   const isUrgent = priority === "urgent" || priority === "high";
 
+  let titleText = "";
+  let descriptionText = "";
+  
+  if (activity_type === "message") {
+    titleText = is_internal ? "New Internal Note" : "New Customer Message";
+    descriptionText = is_internal 
+      ? "A new internal note has been added to your assigned ticket."
+      : "The customer has sent a new message on your assigned ticket.";
+  } else if (activity_type === "priority_change") {
+    titleText = "Ticket Priority Changed";
+    descriptionText = "The priority of your assigned ticket has been updated.";
+  } else if (activity_type === "internal_note") {
+    titleText = "New Internal Note";
+    descriptionText = "A new internal note has been added to your assigned ticket.";
+  }
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>New Support Ticket: ${ticket_subject}</title>
+  <title>${titleText}: ${ticket_subject}</title>
 </head>
 <body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;background-color:#F8FAFC;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#F8FAFC;padding:40px 0;">
@@ -83,21 +96,21 @@ function renderTemplate({
             <td style="padding:40px;text-align:center;">
               ${logoHtml}
               
-              <h1 style="color:#0F172A;font-size:24px;font-weight:600;margin:0 0 8px 0;">New Support Ticket</h1>
+              <h1 style="color:#0F172A;font-size:24px;font-weight:600;margin:0 0 8px 0;">${titleText}</h1>
               
               <div style="display:inline-block;background-color:${priorityBadge.bg};color:${priorityBadge.color};padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;margin:0 0 24px 0;">
                 ${priorityBadge.text}
               </div>
               
               <p style="color:#475569;font-size:16px;line-height:24px;margin:0 0 24px 0;">
-                A new support ticket has been created and requires your attention.
+                ${descriptionText}
               </p>
               
               <div style="background-color:#F1F5F9;border-radius:6px;padding:16px;margin:24px 0;text-align:left;">
                 <table width="100%" cellpadding="0" cellspacing="0">
                   <tr>
                     <td style="padding:8px 0;">
-                      <strong style="color:#0F172A;">Subject:</strong>
+                      <strong style="color:#0F172A;">Ticket:</strong>
                       <span style="color:#475569;margin-left:8px;">${ticket_subject}</span>
                     </td>
                   </tr>
@@ -107,30 +120,12 @@ function renderTemplate({
                       <span style="color:#475569;margin-left:8px;font-family:monospace;">${ticket_id}</span>
                     </td>
                   </tr>
+                  ${activity_message ? `
                   <tr>
                     <td style="padding:8px 0;">
-                      <strong style="color:#0F172A;">From:</strong>
-                      <span style="color:#475569;margin-left:8px;">${user_name} (${user_email})</span>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding:8px 0;">
-                      <strong style="color:#0F172A;">Category:</strong>
-                      <span style="color:#475569;margin-left:8px;">${category || "General"}</span>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding:8px 0;">
-                      <strong style="color:#0F172A;">Created:</strong>
-                      <span style="color:#475569;margin-left:8px;">${fmtDate(created_at)}</span>
-                    </td>
-                  </tr>
-                  ${description_preview ? `
-                  <tr>
-                    <td style="padding:8px 0;">
-                      <strong style="color:#0F172A;">Preview:</strong>
+                      <strong style="color:#0F172A;">${activity_type === "priority_change" ? "New Priority:" : activity_type === "internal_note" ? "Internal Note:" : "Message:"}</strong>
                       <div style="color:#475569;margin-left:8px;margin-top:4px;padding:8px;background-color:#FFFFFF;border-radius:4px;font-size:14px;line-height:20px;">
-                        ${description_preview.substring(0, 200)}${description_preview.length > 200 ? "..." : ""}
+                        ${activity_message}
                       </div>
                     </td>
                   </tr>
@@ -146,7 +141,7 @@ function renderTemplate({
               
               <div style="margin:20px 0;padding-top:20px;border-top:1px solid #E2E8F0;">
                 <p style="color:#64748B;font-size:14px;line-height:20px;margin:0;">
-                  This is an automated notification. Please review and respond to the ticket in the support panel.
+                  This is an automated notification for activity on your assigned ticket. Please review and respond as needed.
                 </p>
               </div>
               
@@ -191,32 +186,49 @@ Deno.serve(async (req: Request) => {
 
     const body = await req.json().catch(() => ({}));
     
-    // Support both webhook payload format and direct call format
-    // Webhook format: { type: 'INSERT', table: 'support_tickets', record: { id: '...', status: 'open', ... }, ... }
-    // Direct call format: { ticketId: '...' }
+    // Support multiple webhook payload formats
+    // Format 1: Ticket message/reply (ticket_messages or support_ticket_replies)
+    // Format 2: Ticket priority change (support_tickets UPDATE)
     let ticketId: string | undefined;
-    let ticketStatus: string | undefined;
+    let activityType: "message" | "priority_change" | "internal_note" = "message";
+    let activityMessage: string | undefined;
+    let isInternal: boolean = false;
+    let newPriority: string | undefined;
     
-    if (body.record && body.record.id) {
-      // Webhook payload format
+    // Check if this is a message/reply
+    if (body.record && (body.table === "ticket_messages" || body.table === "support_ticket_replies")) {
+      ticketId = body.record.ticket_id as string;
+      activityMessage = body.record.message || body.record.content || "";
+      isInternal = body.record.is_internal === true || body.record.is_internal === "true";
+      activityType = isInternal ? "internal_note" : "message";
+    }
+    // Check if this is a priority change
+    else if (body.record && body.table === "support_tickets" && body.old) {
       ticketId = body.record.id as string;
-      ticketStatus = body.record.status as string;
-    } else if (body.ticketId) {
-      // Direct call format
+      const oldPriority = body.old.priority as string;
+      newPriority = body.record.priority as string;
+      if (oldPriority !== newPriority) {
+        activityType = "priority_change";
+        activityMessage = `Priority changed from ${oldPriority} to ${newPriority}`;
+      } else {
+        // Not a priority change, skip
+        return new Response(JSON.stringify({ message: "No priority change detected" }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+    // Direct call format
+    else if (body.ticketId) {
       ticketId = body.ticketId as string;
+      activityType = body.activityType || "message";
+      activityMessage = body.activityMessage || "";
+      isInternal = body.isInternal === true;
     }
 
     if (!ticketId) {
       return new Response(JSON.stringify({ error: "Missing ticketId" }), {
         status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    
-    // If status is provided in webhook payload and it's not 'open', skip notification
-    if (ticketStatus && ticketStatus !== 'open') {
-      return new Response(JSON.stringify({ message: "Ticket is not open, skipping notification" }), {
-        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -228,7 +240,7 @@ Deno.serve(async (req: Request) => {
     // Fetch ticket information
     const { data: ticket, error: ticketErr } = await supabase
       .from("support_tickets")
-      .select("id,ticket_id,subject,description,category,priority,status,user_id,created_at")
+      .select("id,ticket_id,subject,priority,status,assigned_to")
       .eq("id", ticketId)
       .maybeSingle();
 
@@ -240,76 +252,71 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Only send for open tickets
-    if (ticket.status !== "open") {
-      return new Response(JSON.stringify({ message: "Ticket is not open, skipping notification" }), {
+    // Only notify if ticket is assigned
+    if (!ticket.assigned_to) {
+      return new Response(JSON.stringify({ message: "Ticket is not assigned, skipping notification" }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Fetch user information
-    const { data: user, error: userErr } = await supabase
-      .from("profiles")
-      .select("id,email,first_name,last_name")
-      .eq("id", ticket.user_id)
+    // Fetch assigned support agent information
+    const { data: assignedAgent, error: agentErr } = await supabase
+      .from("admin_users")
+      .select("role, profiles:user_id(email,first_name,last_name)")
+      .eq("user_id", ticket.assigned_to)
+      .eq("role", "support")
+      .eq("is_active", true)
       .maybeSingle();
 
-    if (userErr) throw userErr;
-
-    const userName = `${user?.first_name || ""} ${user?.last_name || ""}`.trim() || user?.email || "User";
-    const userEmail = user?.email || "unknown@example.com";
-    
-    // Get admin panel URL from environment variable or construct from request origin
-    const ADMIN_PANEL_URL = Deno.env.get("ADMIN_PANEL_URL") || "https://admin.spacel.app";
-    const ticketUrl = `${ADMIN_PANEL_URL}/support-ticket-system?ticket=${ticketId}`;
-
-    // Fetch all admin emails (exclude support agents - they only get notified when assigned)
-    const { data: adminUsers, error: adminErr } = await supabase
-      .from("admin_users")
-      .select("role, profiles:user_id(email)")
-      .in("role", ["admin", "super_admin"])
-      .eq("is_active", true);
-
-    if (adminErr) throw adminErr;
-
-    if (!adminUsers || adminUsers.length === 0) {
-      return new Response(JSON.stringify({ error: "No admin or support users found" }), {
-        status: 404,
+    if (agentErr) throw agentErr;
+    if (!assignedAgent) {
+      return new Response(JSON.stringify({ message: "Assigned user is not an active support agent, skipping notification" }), {
+        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const recipientEmails = adminUsers
-      .map((u) => (u.profiles as any)?.email)
-      .filter((email): email is string => Boolean(email));
-
-    if (recipientEmails.length === 0) {
-      return new Response(JSON.stringify({ error: "No valid email addresses found" }), {
+    const agentEmail = (assignedAgent.profiles as any)?.email;
+    if (!agentEmail) {
+      return new Response(JSON.stringify({ error: "Assigned agent email not found" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // Get admin panel URL
+    const ADMIN_PANEL_URL = Deno.env.get("ADMIN_PANEL_URL") || "https://admin.spacel.app";
+    const ticketUrl = `${ADMIN_PANEL_URL}/support-ticket-system?ticket=${ticketId}`;
+
+    // Use new priority if it's a priority change
+    const priority = newPriority || ticket.priority || "medium";
 
     const APP_LOGO_URL = Deno.env.get("APP_LOGO_URL");
     
     const html = renderTemplate({
       ticket_subject: ticket.subject || "No Subject",
       ticket_id: ticket.ticket_id || ticket.id,
-      user_name: userName,
-      user_email: userEmail,
-      category: ticket.category || "General",
-      priority: ticket.priority || "medium",
-      created_at: ticket.created_at || new Date().toISOString(),
-      description_preview: ticket.description || null,
+      activity_type: activityType,
+      activity_message: activityMessage || "",
+      priority: priority,
       ticket_url: ticketUrl,
       logo_url: APP_LOGO_URL || null,
+      is_internal: isInternal,
     });
 
-    const priorityPrefix = ticket.priority === "urgent" ? "🚨 URGENT: " : ticket.priority === "high" ? "⚠️ " : "";
-    const subject = `${priorityPrefix}New Support Ticket: ${ticket.subject || "No Subject"}`;
+    let subject = "";
+    const priorityPrefix = priority === "urgent" ? "🚨 URGENT: " : priority === "high" ? "⚠️ " : "";
+    
+    if (activityType === "message") {
+      subject = `${priorityPrefix}New Message: ${ticket.subject || "No Subject"}`;
+    } else if (activityType === "priority_change") {
+      subject = `${priorityPrefix}Priority Changed: ${ticket.subject || "No Subject"}`;
+    } else if (activityType === "internal_note") {
+      subject = `📝 Internal Note: ${ticket.subject || "No Subject"}`;
+    }
 
-    // Send email via Resend to all recipients
+    // Send email to the assigned support agent
     const resendRes = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -318,7 +325,7 @@ Deno.serve(async (req: Request) => {
       },
       body: JSON.stringify({
         from: "Spacel <hello@spacel.app>",
-        to: recipientEmails,
+        to: agentEmail,
         subject,
         html,
       }),
@@ -326,16 +333,17 @@ Deno.serve(async (req: Request) => {
 
     const resendData = await resendRes.json().catch(() => ({}));
     if (!resendRes.ok) {
-      // Log failure
       try {
         await supabase.from("system_logs").insert({
           log_type: "error",
           severity: "high",
-          source: "edge/notify-new-ticket",
-          message: "Resend API error while sending new ticket notification",
+          source: "edge/notify-ticket-activity",
+          message: "Resend API error while sending ticket activity notification",
           details: { 
             ticket_id: ticketId, 
-            recipient_count: recipientEmails.length,
+            activity_type: activityType,
+            assigned_to: ticket.assigned_to,
+            recipient: agentEmail,
             resend: resendData 
           },
           created_at: new Date().toISOString(),
@@ -358,14 +366,16 @@ Deno.serve(async (req: Request) => {
       await supabase.from("system_logs").insert({
         log_type: "info",
         severity: "info",
-        source: "edge/notify-new-ticket",
-        message: "New ticket notification emails sent",
+        source: "edge/notify-ticket-activity",
+        message: "Ticket activity notification email sent",
         details: {
           ticket_id: ticketId,
           ticket_subject: ticket.subject,
-          recipient_count: recipientEmails.length,
-          recipients: recipientEmails,
-          priority: ticket.priority,
+          activity_type: activityType,
+          assigned_to: ticket.assigned_to,
+          recipient: agentEmail,
+          priority: priority,
+          is_internal: isInternal,
           resend: resendData,
         },
         created_at: new Date().toISOString(),
@@ -374,7 +384,7 @@ Deno.serve(async (req: Request) => {
       // ignore logging failures
     }
 
-    return new Response(JSON.stringify({ ok: true, recipients: recipientEmails.length, resend: resendData }), {
+    return new Response(JSON.stringify({ ok: true, recipient: agentEmail, resend: resendData }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -386,5 +396,4 @@ Deno.serve(async (req: Request) => {
     });
   }
 });
-
 

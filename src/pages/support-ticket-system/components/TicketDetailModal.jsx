@@ -28,6 +28,7 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
   const [showAllActivities, setShowAllActivities] = useState(false);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [updatingTicket, setUpdatingTicket] = useState(false);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -290,16 +291,16 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
 
       // ========== SEEKER ACTIVITIES ==========
       // Fetch bookings where user is the seeker
-      const { data: seekerBookings, error: seekerBookingsError } = await supabase
+        const { data: seekerBookings, error: seekerBookingsError } = await supabase
         .from('bookings')
         .select('id, total_paid, price, payment_status, start_time, status, created_at, listings:listing_id (name)')
         .eq('seeker_id', ticket.user.id)
         .order('created_at', { ascending: false })
         .limit(50);
 
-      if (seekerBookingsError) {
-        logWarn('Error fetching seeker bookings:', seekerBookingsError);
-      } else if (seekerBookings) {
+        if (seekerBookingsError) {
+          logWarn('Error fetching seeker bookings:', seekerBookingsError);
+        } else if (seekerBookings) {
         seekerBookingsCount = seekerBookings.length;
 
         // Add bookings as activities with role indicator
@@ -315,12 +316,12 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
         })));
 
         // Calculate total spent: only count paid bookings
-        totalSpent = seekerBookings.reduce((sum, booking) => {
-          if (booking.payment_status !== 'paid') return sum;
-          const amount = parseFloat(booking.total_paid) || parseFloat(booking.price) || 0;
-          return sum + amount;
-        }, 0);
-      }
+          totalSpent = seekerBookings.reduce((sum, booking) => {
+            if (booking.payment_status !== 'paid') return sum;
+            const amount = parseFloat(booking.total_paid) || parseFloat(booking.price) || 0;
+            return sum + amount;
+          }, 0);
+        }
 
       // Fetch recent payments/transactions through bookings (as seeker)
       const { data: userBookings, error: bookingsError } = await supabase
@@ -375,10 +376,10 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
 
       // ========== PARTNER ACTIVITIES ==========
       // Fetch bookings where user is the partner
-      const { data: partnerBookings, error: partnerBookingsError } = await supabase
+        const { data: partnerBookings, error: partnerBookingsError } = await supabase
         .from('bookings')
-        .select(`
-          id,
+          .select(`
+            id,
           total_paid,
           base_amount,
           price,
@@ -386,14 +387,14 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
           status,
           created_at,
           listings!inner(partner_id, name)
-        `)
+          `)
         .eq('listings.partner_id', ticket.user.id)
         .order('created_at', { ascending: false })
         .limit(50);
 
-      if (partnerBookingsError) {
-        logWarn('Error fetching partner bookings:', partnerBookingsError);
-      } else if (partnerBookings) {
+        if (partnerBookingsError) {
+          logWarn('Error fetching partner bookings:', partnerBookingsError);
+        } else if (partnerBookings) {
         partnerBookingsCount = partnerBookings.length;
         recentActivities.push(...partnerBookings.map(b => {
           // For partner bookings, show the booking amount (what the seeker paid)
@@ -726,28 +727,36 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
   };
 
   const handleUpdateTicket = async () => {
-    if (!ticket?.dbId) return;
+    if (!ticket?.dbId || updatingTicket) return;
     
-    const { error } = await supabase
-      .from('support_tickets')
-      .update({
-        status: ticketStatus,
-        priority: ticketPriority,
-        assigned_to: assignee || null,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', ticket.dbId);
+    setUpdatingTicket(true);
+    try {
+      const { error } = await supabase
+        .from('support_tickets')
+        .update({
+          status: ticketStatus,
+          priority: ticketPriority,
+          assigned_to: assignee || null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', ticket.dbId);
 
-    if (!error && onUpdate) {
-      onUpdate({
-        ...ticket,
-        status: ticketStatus,
-        priority: ticketPriority,
-        assignee: assigneeOptions.find(opt => opt.value === assignee) || null
-      });
-      showToast('Ticket updated successfully', 'success');
-    } else if (error) {
+      if (!error && onUpdate) {
+        onUpdate({
+          ...ticket,
+          status: ticketStatus,
+          priority: ticketPriority,
+          assignee: assigneeOptions.find(opt => opt.value === assignee) || null
+        });
+        showToast('Ticket updated successfully', 'success');
+      } else if (error) {
+        showToast('Failed to update ticket. Please try again.', 'error');
+      }
+    } catch (error) {
+      console.error('Error updating ticket:', error);
       showToast('Failed to update ticket. Please try again.', 'error');
+    } finally {
+      setUpdatingTicket(false);
     }
   };
 
@@ -809,10 +818,10 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
 
     return {
       formatted: new Intl.DateTimeFormat('en-US', {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
       }).format(messageDate),
       relativeTime
     };
@@ -1038,18 +1047,18 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
                   {/* User Profile Header Card */}
                   <div className="bg-card border border-border rounded-lg p-6">
                     <div className="flex items-center space-x-4 mb-4">
-                      <Image
+                    <Image
                         src={ticket.user?.avatar || '/assets/images/no_image.png'}
                         alt={ticket.user?.name}
                         className="w-20 h-20 rounded-full object-cover border-2 border-border"
-                      />
+                    />
                       <div className="flex-1">
                         <h3 className="text-xl font-semibold text-foreground mb-1">{ticket.user?.name || 'Unknown User'}</h3>
                         <div className="flex items-center gap-2 text-muted-foreground mb-2">
                           <Icon name="Mail" size={14} />
                           <span className="text-sm">{ticket.user?.email}</span>
                         </div>
-                        {userDetails && (
+                      {userDetails && (
                           <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <Icon name="Calendar" size={14} />
                             <span>Member since {userDetails.memberSince}</span>
@@ -1083,7 +1092,7 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
                       <div className="space-y-3">
                         <div className="flex items-start gap-3">
                           <Icon name="Mail" size={16} className="text-muted-foreground mt-0.5" />
-                          <div>
+                    <div>
                             <p className="text-xs text-muted-foreground mb-0.5">Email Address</p>
                             <p className="text-sm font-medium text-foreground">{ticket.user?.email || 'Not provided'}</p>
                           </div>
@@ -1271,8 +1280,8 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
                                     }`}>
                                       {activity.role === 'seeker' ? 'Seeker' : activity.role === 'partner' ? 'Partner' : activity.role}
                                     </span>
-                                  )}
-                                </div>
+                        )}
+                      </div>
                                 <div className="flex items-center gap-3 text-sm text-muted-foreground ml-8">
                                   <span className="flex items-center gap-1">
                                     <Icon name="Clock" size={12} />
@@ -1281,8 +1290,8 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
                                   {activity.description && (
                                     <span className="text-xs">{activity.description}</span>
                                   )}
-                                </div>
-                              </div>
+                    </div>
+                  </div>
                               {activity.amount && activity.amount > 0 && (
                                 <div className="text-right ml-4">
                                   <p className="text-xs text-muted-foreground mb-0.5">Amount</p>
@@ -1418,12 +1427,12 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
                               <div className="flex items-start justify-between mb-3">
                                 <div className="flex items-center gap-2">
                                   <Icon name="Building" size={18} className="text-primary" />
-                                  <div>
+                    <div>
                                     <p className="font-semibold text-foreground">{booking.spaceName || 'Unknown Space'}</p>
                                     <p className="text-xs text-muted-foreground font-mono mt-0.5">
                                       {booking.booking_reference || 'No reference'}
-                                    </p>
-                                  </div>
+                                </p>
+                              </div>
                                 </div>
                                 <span className={`text-xs font-medium px-3 py-1 rounded-full ${
                                   booking.status === 'confirmed' || booking.status === 'completed'
@@ -1443,7 +1452,7 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
                                     <p className="text-sm font-semibold text-foreground">
                                       {booking.amount || 'A$0.00'}
                                     </p>
-                                  </div>
+                            </div>
                                 </div>
                                 {booking.date && (
                                   <div className="flex items-start gap-2">
@@ -1453,16 +1462,16 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
                                       <p className="text-sm font-medium text-foreground">{booking.date}</p>
                                     </div>
                                   </div>
-                                )}
-                              </div>
+                        )}
+                      </div>
                             </div>
                           ))}
                         </div>
                       ) : (
                         <div className="text-center py-8">
                           <LoadingSpinner text="Loading booking details..." />
-                        </div>
-                      )}
+                    </div>
+                  )}
                     </div>
                   )}
 
@@ -1492,7 +1501,7 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
                       <p className="text-xs text-muted-foreground mb-3">
                         Recent bookings, payments, reviews, listings, payout requests, and other activities by this user.
                       </p>
-                      <div className="space-y-2">
+                    <div className="space-y-2">
                         {(showAllActivities ? userDetails.recentActivities : userDetails.recentActivities.slice(0, 10)).map((activity) => {
                           const getActivityIcon = () => {
                             switch (activity.type) {
@@ -1532,7 +1541,7 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
                                 <div className="flex items-center gap-2 mb-1">
                                   <div className={`p-1.5 rounded ${getActivityColor()}`}>
                                     <Icon name={getActivityIcon()} size={14} />
-                                  </div>
+                            </div>
                                   <p className="font-medium text-foreground">{activity.title}</p>
                                   {activity.role && (
                                     <span className={`text-xs px-2 py-0.5 rounded-full ${
@@ -1543,9 +1552,9 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
                                         : 'bg-gray-100 text-gray-700'
                                     }`}>
                                       {activity.role === 'seeker' ? 'Seeker' : activity.role === 'partner' ? 'Partner' : activity.role}
-                                    </span>
+                            </span>
                                   )}
-                                </div>
+                          </div>
                                 <div className="flex items-center gap-3 text-sm text-muted-foreground ml-8">
                                   <span className="flex items-center gap-1">
                                     <Icon name="Clock" size={12} />
@@ -1553,18 +1562,18 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
                                   </span>
                                   {activity.description && (
                                     <span className="text-xs">{activity.description}</span>
-                                  )}
-                                </div>
-                              </div>
+                      )}
+                    </div>
+                  </div>
                               {activity.amount && activity.amount > 0 && (
                                 <div className="text-right ml-4">
                                   <p className="text-xs text-muted-foreground mb-0.5">Amount</p>
                                   <p className="text-lg font-semibold text-foreground">
                                     A${activity.amount.toFixed(2)}
                                   </p>
-                                </div>
-                              )}
-                            </div>
+                </div>
+              )}
+            </div>
                           );
                         })}
                       </div>
@@ -1662,8 +1671,10 @@ const TicketDetailModal = ({ ticket, isOpen, onClose, onUpdate }) => {
                   iconName="Save"
                   iconPosition="left"
                   fullWidth
+                  disabled={updatingTicket}
+                  loading={updatingTicket}
                 >
-                  Update Ticket
+                  {updatingTicket ? 'Updating...' : 'Update Ticket'}
                 </Button>
               </div>
             </div>

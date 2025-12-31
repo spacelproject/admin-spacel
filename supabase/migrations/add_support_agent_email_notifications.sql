@@ -1,0 +1,116 @@
+-- Migration: Add email notifications for support agents
+-- This migration documents the setup for support agent-specific email notifications
+--
+-- IMPORTANT: This migration does NOT create database triggers.
+-- Instead, you need to set up Supabase Dashboard Database Webhooks as documented below.
+--
+-- Support agents will receive emails for:
+-- 1. Ticket assignment (when assigned_to is set/updated)
+-- 2. Customer messages on their assigned tickets
+-- 3. Priority changes on their assigned tickets
+-- 4. Internal notes on their assigned tickets
+--
+-- Admins/super_admins will continue to receive:
+-- 1. New ticket notifications (when ticket is created)
+-- 2. Pending listing notifications
+--
+-- Support agents will NOT receive:
+-- 1. New ticket notifications (unless assigned)
+-- 2. Pending listing notifications
+
+-- ============================================================================
+-- SETUP INSTRUCTIONS: Supabase Dashboard Database Webhooks
+-- ============================================================================
+--
+-- Go to: Supabase Dashboard → Database → Webhooks
+--
+-- Create the following webhooks:
+--
+-- 1. WEBHOOK: Ticket Assignment Notification
+--    Name: notify-ticket-assignment
+--    Table: support_tickets
+--    Events: UPDATE
+--    Filter: assigned_to IS NOT NULL AND (OLD.assigned_to IS NULL OR OLD.assigned_to != NEW.assigned_to)
+--    Type: Supabase Edge Functions
+--    Function: notify-ticket-assignment
+--    HTTP Method: POST
+--    Timeout: 5000ms or 10000ms
+--    Headers: (none needed - Edge Function handles auth internally)
+--
+-- 2. WEBHOOK: Ticket Activity - Customer Messages (ticket_messages)
+--    Name: notify-ticket-activity-messages
+--    Table: ticket_messages
+--    Events: INSERT
+--    Filter: (none - all new messages)
+--    Type: Supabase Edge Functions
+--    Function: notify-ticket-activity
+--    HTTP Method: POST
+--    Timeout: 5000ms or 10000ms
+--
+-- 3. WEBHOOK: Ticket Activity - Customer Replies (support_ticket_replies)
+--    Name: notify-ticket-activity-replies
+--    Table: support_ticket_replies
+--    Events: INSERT
+--    Filter: (none - all new replies)
+--    Type: Supabase Edge Functions
+--    Function: notify-ticket-activity
+--    HTTP Method: POST
+--    Timeout: 5000ms or 10000ms
+--
+-- 4. WEBHOOK: Ticket Activity - Priority Changes
+--    Name: notify-ticket-activity-priority
+--    Table: support_tickets
+--    Events: UPDATE
+--    Filter: OLD.priority IS DISTINCT FROM NEW.priority AND NEW.assigned_to IS NOT NULL
+--    Type: Supabase Edge Functions
+--    Function: notify-ticket-activity
+--    HTTP Method: POST
+--    Timeout: 5000ms or 10000ms
+--
+-- ============================================================================
+-- NOTES:
+-- ============================================================================
+--
+-- 1. The Edge Functions (notify-ticket-assignment and notify-ticket-activity)
+--    have been created and will automatically:
+--    - Only send emails to assigned support agents
+--    - Skip notifications if ticket is not assigned
+--    - Skip notifications if assigned user is not an active support agent
+--
+-- 2. Internal notes (is_internal = true) are handled by the same webhook as
+--    customer messages - the Edge Function detects is_internal and sends
+--    appropriate notifications.
+--
+-- 3. The existing notify-new-ticket and notify-pending-listing Edge Functions
+--    have been updated to exclude support agents (only admin/super_admin).
+--
+-- 4. Multiple support agents can be assigned to one ticket in the future
+--    (if assigned_to becomes an array) - the Edge Functions will handle this.
+--
+-- ============================================================================
+-- VERIFICATION:
+-- ============================================================================
+--
+-- After setting up webhooks, test by:
+-- 1. Assigning a ticket to a support agent → should receive assignment email
+-- 2. Customer sending a message on assigned ticket → support agent receives email
+-- 3. Changing priority on assigned ticket → support agent receives email
+-- 4. Adding internal note on assigned ticket → support agent receives email
+-- 5. Creating a new ticket → only admins/super_admins receive email
+-- 6. Submitting a pending listing → only admins/super_admins receive email
+--
+-- Check system_logs table for email sending status:
+-- SELECT * FROM system_logs 
+-- WHERE source LIKE 'edge/notify-ticket%' 
+-- ORDER BY created_at DESC 
+-- LIMIT 20;
+
+-- Add comments for documentation
+COMMENT ON FUNCTION notify_admins_on_ticket_created() IS 
+'Creates in-app notifications for admins/super_admins when a new ticket is created. 
+Email notifications are handled by Dashboard Webhooks calling notify-new-ticket Edge Function.';
+
+COMMENT ON FUNCTION notify_admins_on_listing_pending() IS 
+'Creates in-app notifications for admins/super_admins when a listing becomes pending. 
+Email notifications are handled by Dashboard Webhooks calling notify-pending-listing Edge Function.';
+
