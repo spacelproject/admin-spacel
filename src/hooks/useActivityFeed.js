@@ -62,7 +62,9 @@ export const useActivityFeed = () => {
         documentation,
         legalPages,
         inviteTokens,
-        payoutStatusChanges
+        payoutStatusChanges,
+        deletionRequests,
+        cityRequests
       ] = await Promise.all([
         // 1. USER REGISTRATIONS
         safeFetch('profiles', supabase
@@ -444,6 +446,20 @@ export const useActivityFeed = () => {
           `)
           .not('payout_disabled_at', 'is', null)
           .order('payout_disabled_at', { ascending: false })
+          .limit(100)),
+
+        // 28. ACCOUNT DELETION REQUESTS
+        safeFetch('account_deletion_requests', supabase
+          .from('account_deletion_requests')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(100)),
+
+        // 29. CITY REQUESTS
+        safeFetch('city_requests', supabase
+          .from('city_requests')
+          .select('*')
+          .order('created_at', { ascending: false })
           .limit(100))
       ])
 
@@ -904,6 +920,47 @@ export const useActivityFeed = () => {
             raw: profile
           })
         }
+      })
+
+      // Process ACCOUNT DELETION REQUESTS
+      deletionRequests.forEach(request => {
+        const statusMessages = {
+          pending: 'New Account Deletion Request',
+          processed: 'Account Deletion Processed',
+          cancelled: 'Account Deletion Cancelled'
+        }
+        
+        activitiesList.push({
+          id: `deletion_request_${request.id}_${request.created_at}`,
+          type: `deletion_request_${request.status}`,
+          title: statusMessages[request.status] || 'Account Deletion Request',
+          description: `${request.email || 'User'} requested account deletion${request.reason ? `: ${request.reason.substring(0, 50)}${request.reason.length > 50 ? '...' : ''}` : ''}`,
+          avatar: '/assets/images/no_image.png',
+          timestamp: request.status === 'pending' ? request.created_at : request.processed_at || request.updated_at,
+          priority: request.status === 'pending' ? 'high' : 'normal',
+          raw: request
+        })
+      })
+
+      // Process CITY REQUESTS
+      cityRequests.forEach(request => {
+        const statusMessages = {
+          pending: 'New City Request',
+          reviewed: 'City Request Reviewed',
+          approved: 'City Request Approved',
+          rejected: 'City Request Rejected'
+        }
+        
+        activitiesList.push({
+          id: `city_request_${request.id}_${request.created_at}`,
+          type: `city_request_${request.status}`,
+          title: statusMessages[request.status] || 'City Request',
+          description: `${request.email || 'User'} requested to add the city: ${request.city || 'Unknown'}`,
+          avatar: '/assets/images/no_image.png',
+          timestamp: request.status === 'pending' ? request.created_at : request.updated_at,
+          priority: request.status === 'pending' ? 'medium' : 'normal',
+          raw: request
+        })
       })
 
       // Sort by timestamp and remove duplicates

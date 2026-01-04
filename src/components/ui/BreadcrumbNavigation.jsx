@@ -15,6 +15,8 @@ const BreadcrumbNavigation = () => {
     '/commission-management': 'Commission Management',
     '/content-management': 'Content Management',
     '/support-ticket-system': 'Support Tickets',
+    '/account-deletion-requests': 'Account Deletion Requests',
+    '/city-requests': 'City Requests',
     '/analytics-reports': 'Analytics & Reports',
     '/platform-settings': 'Platform Settings'
   };

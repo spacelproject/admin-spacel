@@ -1,31 +1,82 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Icon from '../../../components/AppIcon';
+import { supabase } from '../../../lib/supabase';
 
 const ContentTabs = ({ activeTab, onTabChange }) => {
+  const [counts, setCounts] = useState({
+    announcements: 0,
+    documentation: 0,
+    legal: 0,
+    moderation: 0
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchCounts = async () => {
+      try {
+        setLoading(true);
+        
+        // Fetch announcements count
+        const { count: announcementsCount } = await supabase
+          .from('announcements')
+          .select('*', { count: 'exact', head: true });
+        
+        // Fetch documentation count
+        const { count: documentationCount } = await supabase
+          .from('documentation')
+          .select('*', { count: 'exact', head: true });
+        
+        // Fetch legal pages count
+        const { count: legalCount } = await supabase
+          .from('legal_pages')
+          .select('*', { count: 'exact', head: true });
+        
+        // Fetch content reports count (pending/review)
+        const { count: moderationCount } = await supabase
+          .from('content_reports')
+          .select('*', { count: 'exact', head: true })
+          .in('status', ['pending', 'under_review']);
+        
+        setCounts({
+          announcements: announcementsCount || 0,
+          documentation: documentationCount || 0,
+          legal: legalCount || 0,
+          moderation: moderationCount || 0
+        });
+      } catch (error) {
+        console.error('Error fetching content counts:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCounts();
+  }, []);
+
   const tabs = [
     {
       id: 'announcements',
       label: 'Announcements',
       icon: 'Megaphone',
-      count: 12
+      count: counts.announcements
     },
     {
       id: 'documentation',
       label: 'Documentation',
       icon: 'BookOpen',
-      count: 45
+      count: counts.documentation
     },
     {
       id: 'legal',
       label: 'Legal Pages',
       icon: 'Scale',
-      count: 8
+      count: counts.legal
     },
     {
       id: 'moderation',
       label: 'Content Moderation',
       icon: 'Shield',
-      count: 23
+      count: counts.moderation
     }
   ];
 
@@ -46,12 +97,12 @@ const ContentTabs = ({ activeTab, onTabChange }) => {
             <Icon name={tab.icon} size={16} />
             <span>{tab.label}</span>
             <span className={`
-              inline-flex items-center justify-center px-2 py-1 text-xs font-medium rounded-full
+              inline-flex items-center justify-center px-2 py-1 text-xs font-medium rounded-full min-w-[24px]
               ${activeTab === tab.id
                 ? 'bg-primary/10 text-primary' :'bg-muted text-muted-foreground'
               }
             `}>
-              {tab.count}
+              {loading ? '...' : tab.count}
             </span>
           </button>
         ))}

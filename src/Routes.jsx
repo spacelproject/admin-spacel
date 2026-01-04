@@ -16,6 +16,8 @@ import ContentManagement from "pages/content-management";
 import SupportTicketSystem from "pages/support-ticket-system";
 import SupportAgentTickets from "pages/support-agent-tickets";
 import PlatformSettings from "pages/platform-settings";
+import AccountDeletionRequests from "pages/account-deletion-requests";
+import CityRequests from "pages/city-requests";
 import TestPage from "pages/TestPage";
 import NotFound from "pages/NotFound";
 
@@ -83,6 +85,16 @@ const Routes = () => {
         <Route path="/platform-settings" element={
           <ProtectedRoute requiredRole="admin">
             <PlatformSettings />
+          </ProtectedRoute>
+        } />
+        <Route path="/account-deletion-requests" element={
+          <ProtectedRoute requiredRole="admin">
+            <AccountDeletionRequests />
+          </ProtectedRoute>
+        } />
+        <Route path="/city-requests" element={
+          <ProtectedRoute requiredRole="admin">
+            <CityRequests />
           </ProtectedRoute>
         } />
         

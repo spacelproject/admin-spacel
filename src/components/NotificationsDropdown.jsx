@@ -55,6 +55,16 @@ const NotificationsDropdown = ({ isOpen, onClose }) => {
         return { name: 'Clock', color: 'text-warning' }
       case 'system':
         return { name: 'Info', color: 'text-info' }
+      case 'deletion_request':
+        return { name: 'UserX', color: 'text-error' }
+      case 'city_request':
+        return { name: 'MapPin', color: 'text-primary' }
+      case 'payout_request':
+        return { name: 'DollarSign', color: 'text-success' }
+      case 'ticket':
+        return { name: 'MessageCircle', color: 'text-warning' }
+      case 'report':
+        return { name: 'Flag', color: 'text-error' }
       default:
         return { name: 'Bell', color: 'text-muted-foreground' }
     }

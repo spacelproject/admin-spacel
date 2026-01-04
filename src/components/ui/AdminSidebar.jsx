@@ -8,6 +8,7 @@ const AdminSidebar = () => {
   const { user, signOut } = useAuth();
   const { isExpanded, setIsExpanded } = useSidebar();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const [expandedItems, setExpandedItems] = useState(new Set(['content'])); // Default to expanded
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -58,7 +59,23 @@ const AdminSidebar = () => {
       label: 'Content',
       path: '/content-management',
       icon: 'FileText',
-      badge: null
+      badge: null,
+      children: [
+        {
+          id: 'deletion-requests',
+          label: 'Deletion Requests',
+          path: '/account-deletion-requests',
+          icon: 'UserX',
+          badge: null
+        },
+        {
+          id: 'city-requests',
+          label: 'City Requests',
+          path: '/city-requests',
+          icon: 'MapPin',
+          badge: null
+        }
+      ]
     },
     {
       id: 'support',
@@ -116,9 +133,37 @@ const AdminSidebar = () => {
     }
   };
 
-  const isActive = (path) => {
-    return location.pathname === path;
+  const isActive = (path, children) => {
+    if (location.pathname === path) return true;
+    // Check if any child path is active
+    if (children) {
+      return children.some(child => location.pathname === child.path);
+    }
+    return false;
   };
+
+  const toggleItemExpanded = (itemId) => {
+    setExpandedItems(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(itemId)) {
+        newSet.delete(itemId);
+      } else {
+        newSet.add(itemId);
+      }
+      return newSet;
+    });
+  };
+
+  // Auto-expand Content if any child is active
+  useEffect(() => {
+    const contentItem = navigationItems.find(item => item.id === 'content');
+    if (contentItem?.children) {
+      const hasActiveChild = contentItem.children.some(child => location.pathname === child.path);
+      if (hasActiveChild && !expandedItems.has('content')) {
+        setExpandedItems(prev => new Set(prev).add('content'));
+      }
+    }
+  }, [location.pathname]);
 
   const handleLogout = async () => {
     try {
@@ -175,18 +220,46 @@ const AdminSidebar = () => {
 
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {navigationItems.map((item) => (
-            <NavigationItem
-              key={item.id}
-              icon={item.icon}
-              label={item.label}
-              path={item.path}
-              isActive={isActive(item.path)}
-              isExpanded={isExpanded}
-              badge={item.badge}
-              onClick={() => handleNavigation(item.path)}
-            />
-          ))}
+          {navigationItems.map((item) => {
+            const hasChildren = item.children && item.children.length > 0;
+            const isItemExpanded = expandedItems.has(item.id);
+            const isItemActive = isActive(item.path, item.children);
+            
+            return (
+              <div key={item.id}>
+                <NavigationItem
+                  icon={item.icon}
+                  label={item.label}
+                  path={item.path}
+                  isActive={isItemActive}
+                  isExpanded={isExpanded}
+                  badge={item.badge}
+                  onClick={() => handleNavigation(item.path)}
+                  onToggleExpand={hasChildren && isExpanded ? () => toggleItemExpanded(item.id) : null}
+                  hasChildren={hasChildren}
+                  isExpandedItem={isItemExpanded}
+                />
+                {/* Render children if they exist, sidebar is expanded, and item is expanded */}
+                {hasChildren && isExpanded && isItemExpanded && (
+                  <div className="ml-8 mt-1 space-y-1">
+                    {item.children.map((child) => (
+                      <NavigationItem
+                        key={child.id}
+                        icon={child.icon}
+                        label={child.label}
+                        path={child.path}
+                        isActive={isActive(child.path)}
+                        isExpanded={isExpanded}
+                        badge={child.badge}
+                        onClick={() => handleNavigation(child.path)}
+                        isSubItem={true}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
 
         {/* Toggle Button (Desktop) - Middle */}
@@ -238,42 +311,84 @@ const AdminSidebar = () => {
   );
 };
 
-const NavigationItem = ({ icon, label, path, isActive, isExpanded, onClick, badge }) => {
+const NavigationItem = ({ icon, label, path, isActive, isExpanded, onClick, onToggleExpand, badge, isSubItem = false, hasChildren = false, isExpandedItem = false }) => {
+  const handleClick = (e) => {
+    // If clicking on the chevron, toggle expand instead
+    if (hasChildren && onToggleExpand && e.target.closest('.chevron-button')) {
+      e.stopPropagation();
+      onToggleExpand();
+      return;
+    }
+    onClick();
+  };
+
   return (
-    <button
-      onClick={onClick}
-      className={`
-        w-full flex items-center ${isExpanded ? 'justify-between' : 'justify-center'} 
-        px-3 py-2 rounded-lg transition-smooth relative
-        ${isActive 
-          ? 'bg-blue-600 text-white' 
-          : 'text-gray-700 hover:bg-gray-100'
-        }
-      `}
-    >
-      <div className="flex items-center space-x-3">
+    <div className={`
+      w-full flex items-center ${isExpanded ? 'justify-between' : 'justify-center'} 
+      ${isSubItem ? 'px-2 py-1.5' : 'px-3 py-2'} rounded-lg transition-smooth relative
+      ${isActive 
+        ? isSubItem ? 'bg-blue-100 text-blue-700' : 'bg-blue-600 text-white'
+        : 'text-gray-700 hover:bg-gray-100'
+      }
+    `}>
+      <button
+        onClick={handleClick}
+        className="flex items-center space-x-3 flex-1 min-w-0 text-left"
+      >
+        {isSubItem && isExpanded && (
+          <span className="w-1 h-1 rounded-full bg-gray-400 flex-shrink-0"></span>
+        )}
         <Icon 
           name={icon} 
-          size={18} 
-          className={isActive ? 'text-white' : 'text-gray-600'}
+          size={isSubItem ? 16 : 18} 
+          className={`flex-shrink-0 ${
+            isActive 
+              ? (isSubItem ? 'text-blue-700' : 'text-white') 
+              : 'text-gray-600'
+          }`}
         />
         {isExpanded && (
-          <span className={`text-sm font-medium ${isActive ? 'text-white' : 'text-gray-700'}`}>
+          <span className={`text-sm ${isSubItem ? 'font-normal' : 'font-medium'} truncate ${
+            isActive 
+              ? (isSubItem ? 'text-blue-700' : 'text-white') 
+              : 'text-gray-700'
+          }`}>
             {label}
           </span>
         )}
-      </div>
-      {isExpanded && badge !== null && badge !== undefined && badge > 0 && (
-        <span className={`text-xs rounded-full h-5 w-5 flex items-center justify-center font-medium min-w-[20px] ${
-          isActive ? 'bg-white/20 text-white' : 'bg-red-500 text-white'
-        }`}>
-          {badge > 9 ? '9+' : badge}
-        </span>
+      </button>
+      {isExpanded && (
+        <div className="flex items-center space-x-2 flex-shrink-0">
+          {badge !== null && badge !== undefined && badge > 0 && (
+            <span className={`text-xs rounded-full h-5 w-5 flex items-center justify-center font-medium min-w-[20px] ${
+              isActive 
+                ? (isSubItem ? 'bg-blue-200 text-blue-800' : 'bg-white/20 text-white')
+                : 'bg-red-500 text-white'
+            }`}>
+              {badge > 9 ? '9+' : badge}
+            </span>
+          )}
+          {hasChildren && onToggleExpand && (
+            <button
+              onClick={onToggleExpand}
+              className={`chevron-button p-1 rounded hover:bg-opacity-20 transition-smooth ${
+                isActive ? 'hover:bg-white' : 'hover:bg-gray-200'
+              }`}
+              aria-label={isExpandedItem ? 'Collapse' : 'Expand'}
+            >
+              <Icon 
+                name={isExpandedItem ? "ChevronDown" : "ChevronRight"} 
+                size={14} 
+                className={isActive ? 'text-white' : 'text-gray-500'}
+              />
+            </button>
+          )}
+        </div>
       )}
       {!isExpanded && badge !== null && badge !== undefined && badge > 0 && (
         <span className="absolute top-1.5 right-1.5 bg-red-500 text-white text-xs rounded-full h-2 w-2" />
       )}
-    </button>
+    </div>
   );
 };
 

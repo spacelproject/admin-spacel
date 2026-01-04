@@ -6,7 +6,9 @@ import Select from '../../../components/ui/Select';
 import Icon from '../../../components/AppIcon';
 import LoadingSpinner from '../../../components/ui/LoadingSpinner';
 import usePlatformSettings from '../../../hooks/usePlatformSettings';
-import { logDebug } from '../../../utils/logger';
+import { supabase } from '../../../lib/supabase';
+import { useToast } from '../../../components/ui/Toast';
+import { logDebug, logError } from '../../../utils/logger';
 
 const GeneralSettingsTab = () => {
   const {
@@ -18,15 +20,53 @@ const GeneralSettingsTab = () => {
     saveSettings,
     resetSettings
   } = usePlatformSettings('general');
+  const { showToast } = useToast();
 
   const [localSettings, setLocalSettings] = useState({});
   const [changedKeys, setChangedKeys] = useState(new Set());
+  const [appSettingsChanged, setAppSettingsChanged] = useState(false);
   const initialSettingsRef = useRef({});
+  const initialAppSettingsRef = useRef({});
+
+  // Fetch app_settings on mount
+  useEffect(() => {
+    const fetchAppSettings = async () => {
+      try {
+        const { data, error: fetchError } = await supabase
+          .from('app_settings')
+          .select('key, value')
+          .in('key', ['app_store_ios_url', 'app_store_android_url']);
+
+        if (fetchError) {
+          logError('Error fetching app settings:', fetchError);
+          return;
+        }
+
+        const appSettings = {};
+        if (data) {
+          data.forEach((item) => {
+            if (item.key === 'app_store_ios_url') {
+              appSettings.appStoreIosUrl = item.value || '';
+            } else if (item.key === 'app_store_android_url') {
+              appSettings.appStoreAndroidUrl = item.value || '';
+            }
+          });
+        }
+
+        initialAppSettingsRef.current = { ...appSettings };
+        setLocalSettings(prev => ({ ...prev, ...appSettings }));
+      } catch (err) {
+        logError('Error fetching app settings:', err);
+      }
+    };
+
+    fetchAppSettings();
+  }, []);
 
   // Initialize local settings when data loads
   useEffect(() => {
     if (!loading && Object.keys(settings).length > 0) {
-      setLocalSettings(settings);
+      setLocalSettings(prev => ({ ...prev, ...settings }));
       initialSettingsRef.current = { ...settings };
       setChangedKeys(new Set());
     }
@@ -55,43 +95,128 @@ const GeneralSettingsTab = () => {
         [field]: value
       };
 
-      // Track changed keys by comparing with initial values
-      const initialValue = initialSettingsRef.current[field];
-      const hasChanged = JSON.stringify(initialValue) !== JSON.stringify(value);
+      // Check if it's an app setting
+      const isAppSetting = field === 'appStoreIosUrl' || field === 'appStoreAndroidUrl';
+      
+      if (isAppSetting) {
+        const initialValue = initialAppSettingsRef.current[field] || '';
+        const hasChanged = initialValue !== value;
+        setAppSettingsChanged(hasChanged);
+      } else {
+        // Track changed keys by comparing with initial values for platform settings
+        const initialValue = initialSettingsRef.current[field];
+        const hasChanged = JSON.stringify(initialValue) !== JSON.stringify(value);
 
-      setChangedKeys(prevKeys => {
-        const newKeys = new Set(prevKeys);
-        if (hasChanged) {
-          newKeys.add(field);
-        } else {
-          newKeys.delete(field);
-        }
-        return newKeys;
-      });
+        setChangedKeys(prevKeys => {
+          const newKeys = new Set(prevKeys);
+          if (hasChanged) {
+            newKeys.add(field);
+          } else {
+            newKeys.delete(field);
+          }
+          return newKeys;
+        });
+      }
 
-      logDebug('Setting changed', { field, value, hasChanged });
+      logDebug('Setting changed', { field, value, isAppSetting });
       return newSettings;
     });
   };
 
   const handleSave = async () => {
-    if (changedKeys.size === 0) {
+    const hasChanges = changedKeys.size > 0 || appSettingsChanged;
+    
+    if (!hasChanges) {
       return;
     }
 
-    const changedKeysArray = Array.from(changedKeys);
-    const success = await saveSettings(localSettings, changedKeysArray);
+    let allSuccess = true;
 
-    if (success) {
-      // Update initial ref to current values after successful save
-      initialSettingsRef.current = { ...localSettings };
-      setChangedKeys(new Set());
+    // Save platform settings
+    if (changedKeys.size > 0) {
+      const changedKeysArray = Array.from(changedKeys);
+      const success = await saveSettings(localSettings, changedKeysArray);
+      if (!success) allSuccess = false;
+    }
+
+    // Save app settings
+    if (appSettingsChanged) {
+      try {
+        const updates = [];
+        
+        if (localSettings.appStoreIosUrl !== (initialAppSettingsRef.current.appStoreIosUrl || '')) {
+          updates.push({
+            key: 'app_store_ios_url',
+            value: localSettings.appStoreIosUrl || ''
+          });
+        }
+        
+        if (localSettings.appStoreAndroidUrl !== (initialAppSettingsRef.current.appStoreAndroidUrl || '')) {
+          updates.push({
+            key: 'app_store_android_url',
+            value: localSettings.appStoreAndroidUrl || ''
+          });
+        }
+
+        if (updates.length > 0) {
+          for (const update of updates) {
+            const { error: updateError } = await supabase
+              .from('app_settings')
+              .upsert({
+                key: update.key,
+                value: update.value || '', // Ensure empty string instead of null
+                updated_at: new Date().toISOString()
+              }, {
+                onConflict: 'key'
+              });
+
+            if (updateError) {
+              logError('Error saving app setting:', updateError);
+              const errorMessage = updateError.message || `Error saving ${update.key.replace('_', ' ')}`;
+              showToast(errorMessage, 'error');
+              allSuccess = false;
+            } else {
+              // Log successful save
+              logDebug('App setting saved successfully', { key: update.key });
+            }
+          }
+
+          if (allSuccess) {
+            initialAppSettingsRef.current = {
+              appStoreIosUrl: localSettings.appStoreIosUrl || '',
+              appStoreAndroidUrl: localSettings.appStoreAndroidUrl || ''
+            };
+            setAppSettingsChanged(false);
+            showToast('App store URLs saved successfully', 'success');
+          }
+        }
+      } catch (err) {
+        logError('Error saving app settings:', err);
+        showToast('Error saving app store URLs', 'error');
+        allSuccess = false;
+      }
+    }
+
+    if (allSuccess) {
+      if (changedKeys.size > 0) {
+        // Update initial ref to current values after successful save
+        initialSettingsRef.current = { ...localSettings };
+        setChangedKeys(new Set());
+      }
+      // Success message is already shown for app settings or platform settings
+      if (changedKeys.size === 0 && appSettingsChanged) {
+        // Only app settings were saved, success already shown above
+      }
     }
   };
 
   const handleReset = () => {
-    setLocalSettings({ ...initialSettingsRef.current });
+    setLocalSettings({ 
+      ...initialSettingsRef.current,
+      ...initialAppSettingsRef.current
+    });
     setChangedKeys(new Set());
+    setAppSettingsChanged(false);
   };
 
   const formatLastUpdated = (date) => {
@@ -241,6 +366,36 @@ const GeneralSettingsTab = () => {
         </div>
       </div>
 
+      {/* App Store URLs */}
+      <div className="bg-card rounded-lg border border-border p-6">
+        <div className="flex items-center space-x-2 mb-6">
+          <Icon name="Smartphone" size={20} className="text-primary" />
+          <h3 className="text-lg font-semibold text-card-foreground">App Store URLs</h3>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Input
+            label="iOS App Store URL"
+            type="url"
+            value={localSettings.appStoreIosUrl || ''}
+            onChange={(e) => handleInputChange('appStoreIosUrl', e.target.value)}
+            description="URL to the app on Apple App Store"
+            placeholder="https://apps.apple.com/app/id..."
+            disabled={saving}
+          />
+          
+          <Input
+            label="Google Play Store URL"
+            type="url"
+            value={localSettings.appStoreAndroidUrl || ''}
+            onChange={(e) => handleInputChange('appStoreAndroidUrl', e.target.value)}
+            description="URL to the app on Google Play Store"
+            placeholder="https://play.google.com/store/apps/details?id=..."
+            disabled={saving}
+          />
+        </div>
+      </div>
+
       {/* Feature Toggles */}
       <div className="bg-card rounded-lg border border-border p-6">
         <div className="flex items-center space-x-2 mb-6">
@@ -314,7 +469,7 @@ const GeneralSettingsTab = () => {
           <Button
             variant="outline"
             onClick={handleReset}
-            disabled={changedKeys.size === 0 || saving}
+            disabled={(changedKeys.size === 0 && !appSettingsChanged) || saving}
           >
             Reset Changes
           </Button>
@@ -322,7 +477,7 @@ const GeneralSettingsTab = () => {
           <Button
             variant="default"
             onClick={handleSave}
-            disabled={changedKeys.size === 0 || saving}
+            disabled={(changedKeys.size === 0 && !appSettingsChanged) || saving}
             iconName={saving ? "Loader2" : "Save"}
             iconPosition="left"
           >
