@@ -10,6 +10,7 @@ import LoadingSpinner from '../../../components/ui/LoadingSpinner';
 import ErrorState from '../../../components/ui/ErrorState';
 import { useToast } from '../../../components/ui/Toast';
 import { fetchFeeSettings } from '../../../utils/feeCalculator';
+import PromotionalRatesSection from './PromotionalRates/PromotionalRatesSection';
 
 const PaymentConfigTab = () => {
   const { showToast } = useToast();
@@ -410,6 +411,9 @@ const PaymentConfigTab = () => {
           </Button>
         </div>
       </div>
+
+      {/* Promotional Rates */}
+      <PromotionalRatesSection />
 
       {/* Policies */}
       <div className="bg-card rounded-lg border border-border p-6">
