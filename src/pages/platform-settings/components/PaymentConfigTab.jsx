@@ -283,16 +283,8 @@ const PaymentConfigTab = () => {
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Checkbox
-              label="Cards Payment Method"
-              description="Credit/debit cards, bank transfers"
-              checked={localPaymentSettings.cardsPaymentMethod}
-              onChange={(e) => handlePaymentInputChange('cardsPaymentMethod', e.target.checked)}
-              disabled={isSaving}
-            />
-            
-            <Checkbox
               label="Stripe Link"
-              description="Frictionless checkout links powered by Stripe"
+              description="Credit/debit cards, bank transfers"
               checked={localPaymentSettings.stripeLink}
               onChange={(e) => handlePaymentInputChange('stripeLink', e.target.checked)}
               disabled={isSaving}
