@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import AdminSidebar from '../../components/ui/AdminSidebar';
 import UserProfileDropdown from '../../components/ui/UserProfileDropdown';
 import NotificationBell from '../../components/NotificationBell';
@@ -15,6 +16,7 @@ import useCommissionData from '../../hooks/useCommissionData';
 import { useSidebar } from '../../contexts/SidebarContext';
 
 const CommissionManagement = () => {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('overview');
   const [isExporting, setIsExporting] = useState(false);
   const { isExpanded } = useSidebar();
@@ -53,8 +55,8 @@ const CommissionManagement = () => {
   };
 
   const handlePlatformSettings = () => {
-    // Navigate to platform settings
-    window.location.href = '/platform-settings';
+    // Navigate to platform settings Payment tab using React Router
+    navigate('/platform-settings?tab=payment');
   };
 
   const tabs = [

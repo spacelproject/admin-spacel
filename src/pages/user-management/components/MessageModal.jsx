@@ -24,6 +24,7 @@ const MessageModal = ({ isOpen, onClose, user, onSendMessage }) => {
   const messagesEndRef = useRef(null);
   const subscriptionRef = useRef(null);
   const lastFetchedConvId = useRef(null);
+  const addedMessageIds = useRef(new Set()); // Track message IDs we've already added
 
   // Set up conversation
   const setupConversation = async () => {
@@ -151,10 +152,69 @@ const MessageModal = ({ isOpen, onClose, user, onSendMessage }) => {
       setMessages(data || []);
       setHasLoadedOnce(true); // Mark that we've loaded messages at least once
       lastFetchedConvId.current = convId; // Cache this conversation ID
+      
+      // Mark all loaded messages as added to prevent duplicates
+      if (data && data.length > 0) {
+        data.forEach(msg => {
+          addedMessageIds.current.add(msg.id);
+        });
+      }
     } catch (error) {
       console.error('Error fetching messages:', error);
     } finally {
       setLoadingMessages(false);
+    }
+  };
+
+  // Helper function to fetch message with profile data
+  const fetchMessageWithProfile = async (messageId) => {
+    // Skip if we've already added this message
+    if (addedMessageIds.current.has(messageId)) {
+      console.log('Message already in added set, skipping:', messageId);
+      return;
+    }
+
+    try {
+      const { data: messageWithProfile, error } = await supabase
+        .from('messages')
+        .select(`
+          id,
+          content,
+          sender_id,
+          created_at,
+          read_at,
+          message_type,
+          space_context_name,
+          profiles:sender_id (
+            first_name,
+            last_name,
+            email,
+            avatar_url
+          )
+        `)
+        .eq('id', messageId)
+        .single();
+
+      if (error) throw error;
+
+      // Double-check it's not already in state
+      setMessages(prev => {
+        const messageExists = prev.some(msg => msg.id === messageWithProfile.id);
+        if (messageExists || addedMessageIds.current.has(messageId)) {
+          return prev; // Don't add duplicate
+        }
+        
+        // Mark as added
+        addedMessageIds.current.add(messageId);
+        return [...prev, messageWithProfile];
+      });
+
+      // Scroll to bottom
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    } catch (error) {
+      console.error('Error fetching message with profile:', error);
     }
   };
 
@@ -176,20 +236,22 @@ const MessageModal = ({ isOpen, onClose, user, onSendMessage }) => {
           table: 'messages',
           filter: `conversation_id=eq.${convId}`
         }, 
-        (payload) => {
+        async (payload) => {
           console.log('Message change received:', payload);
           
           if (payload.eventType === 'INSERT') {
-            // Add new message to the list
-            setMessages(prev => [...prev, payload.new]);
-            // Scroll to bottom
-            setTimeout(() => {
-              messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-            }, 100);
+            // Skip if we've already added this message ID
+            if (addedMessageIds.current.has(payload.new.id)) {
+              console.log('Message already in added set, skipping duplicate:', payload.new.id);
+              return;
+            }
+            
+            // Fetch with profile data and add it
+            fetchMessageWithProfile(payload.new.id);
           } else if (payload.eventType === 'UPDATE') {
             // Update existing message (e.g., read status)
             setMessages(prev => prev.map(msg => 
-              msg.id === payload.new.id ? payload.new : msg
+              msg.id === payload.new.id ? { ...msg, ...payload.new } : msg
             ));
           }
         }
@@ -353,22 +415,46 @@ const MessageModal = ({ isOpen, onClose, user, onSendMessage }) => {
       
       if (messageError) throw messageError;
       
-      // Add message to local state immediately for better UX
-      const messageWithProfile = {
-        ...newMessage,
-        profiles: {
-          first_name: adminUser?.user_metadata?.first_name || 'Admin',
-          last_name: adminUser?.user_metadata?.last_name || '',
-          email: adminUser?.email || '',
-          avatar_url: adminUser?.user_metadata?.avatar_url || null
-        }
-      };
-      setMessages(prev => [...prev, messageWithProfile]);
+      // Fetch the message with profile data and add it immediately for better UX
+      // The real-time subscription will try to add it too, but we prevent duplicates
+      const { data: messageWithProfile, error: fetchError } = await supabase
+        .from('messages')
+        .select(`
+          id,
+          content,
+          sender_id,
+          created_at,
+          read_at,
+          message_type,
+          space_context_name,
+          profiles:sender_id (
+            first_name,
+            last_name,
+            email,
+            avatar_url
+          )
+        `)
+        .eq('id', newMessage.id)
+        .single();
       
-      // Scroll to bottom
-      setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 100);
+      if (!fetchError && messageWithProfile) {
+        // Mark this message ID as added to prevent duplicates from real-time subscription
+        addedMessageIds.current.add(messageWithProfile.id);
+        
+        // Add message immediately - the real-time subscription will skip it
+        setMessages(prev => {
+          const messageExists = prev.some(msg => msg.id === messageWithProfile.id);
+          if (messageExists) {
+            return prev; // Don't add duplicate
+          }
+          return [...prev, messageWithProfile];
+        });
+        
+        // Scroll to bottom
+        setTimeout(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
+      }
       
       // Create notification for recipient
       const recipientId = user.id;
@@ -456,6 +542,7 @@ const MessageModal = ({ isOpen, onClose, user, onSendMessage }) => {
     setConversationId(null);
     setHasLoadedOnce(false); // Reset loaded flag
     lastFetchedConvId.current = null; // Reset cache
+    addedMessageIds.current.clear(); // Clear added message IDs
     
     // Clean up subscription
     if (subscriptionRef.current) {

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import AdminSidebar from '../../components/ui/AdminSidebar';
 import UserProfileDropdown from '../../components/ui/UserProfileDropdown';
 import NotificationBell from '../../components/NotificationBell';
@@ -17,6 +18,8 @@ import SettingsSearch from './components/SettingsSearch';
 import ChangeHistoryPanel from './components/ChangeHistoryPanel';
 
 const PlatformSettings = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabFromUrl = searchParams.get('tab');
   const [activeTab, setActiveTab] = useState('general');
   const [searchQuery, setSearchQuery] = useState('');
   const [showHistory, setShowHistory] = useState(false);
@@ -55,6 +58,16 @@ const PlatformSettings = () => {
     }
   ];
 
+  // Set initial tab from URL parameter
+  useEffect(() => {
+    if (tabFromUrl) {
+      const validTabIds = ['general', 'payment', 'notifications', 'security', 'staff-invites'];
+      if (validTabIds.includes(tabFromUrl)) {
+        setActiveTab(tabFromUrl);
+      }
+    }
+  }, [tabFromUrl]);
+
   const handleTabChange = (tabId) => {
     if (hasUnsavedChanges) {
       const confirmLeave = window.confirm('You have unsaved changes. Are you sure you want to leave this tab?');
@@ -62,6 +75,8 @@ const PlatformSettings = () => {
     }
     setActiveTab(tabId);
     setHasUnsavedChanges(false);
+    // Update URL parameter without page reload
+    setSearchParams({ tab: tabId });
   };
 
   const handleSearch = (query) => {
