@@ -120,3 +120,45 @@ export const validateUserInput = (input, schema) => {
   }
 }
 
+/**
+ * Validate semantic version format (X.Y.Z)
+ */
+export const isValidSemanticVersion = (version) => {
+  if (!version || typeof version !== 'string') return false
+  const semverRegex = /^\d+\.\d+\.\d+$/
+  return semverRegex.test(version.trim())
+}
+
+/**
+ * Compare two semantic versions
+ * Returns: -1 if v1 < v2, 0 if v1 === v2, 1 if v1 > v2
+ */
+export const compareSemanticVersions = (v1, v2) => {
+  if (!isValidSemanticVersion(v1) || !isValidSemanticVersion(v2)) {
+    return null
+  }
+  
+  const parts1 = v1.split('.').map(Number)
+  const parts2 = v2.split('.').map(Number)
+  
+  for (let i = 0; i < 3; i++) {
+    if (parts1[i] < parts2[i]) return -1
+    if (parts1[i] > parts2[i]) return 1
+  }
+  
+  return 0
+}
+
+/**
+ * Validate HTTPS URL
+ */
+export const isValidHttpsUrl = (url) => {
+  if (!url || typeof url !== 'string') return false
+  try {
+    const urlObj = new URL(url.trim())
+    return urlObj.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+

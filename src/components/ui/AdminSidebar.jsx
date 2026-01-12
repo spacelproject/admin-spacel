@@ -97,6 +97,13 @@ const AdminSidebar = () => {
       path: '/platform-settings',
       icon: 'Settings',
       badge: null
+    },
+    {
+      id: 'app-updates',
+      label: 'App Updates',
+      path: '/app-updates',
+      icon: 'Smartphone',
+      badge: null
     }
   ];
 
