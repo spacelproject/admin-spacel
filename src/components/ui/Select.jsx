@@ -42,7 +42,7 @@ const Select = React.forwardRef(({
 
     // Get selected option(s) for display
     const getSelectedDisplay = () => {
-        if (!value) return placeholder;
+        if (!value || value === '') return placeholder;
 
         if (multiple) {
             const selectedOptions = options.filter(opt => value.includes(opt.value));

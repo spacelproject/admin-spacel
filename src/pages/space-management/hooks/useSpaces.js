@@ -28,7 +28,7 @@ export const useSpaces = () => {
       console.log('🔍 Testing database connection...')
       
       // Test if spaces/listings table exists
-      const { data: spacesTest, error: spacesError } = await db.spaces.select('id').limit(1)
+      const { data: spacesTest, error: spacesError } = await supabase.from('listings').select('id').limit(1)
       console.log('Spaces/Listings table test:', { data: spacesTest, error: spacesError })
       
       // Test if users/profiles table exists
@@ -109,6 +109,7 @@ export const useSpaces = () => {
               updated_at,
               submitted_at
             `)
+            .neq('status', 'deleted') // Exclude deleted spaces
             .order('created_at', { ascending: false })
             // Remove limit to fetch all spaces, or use a very high limit
             .limit(1000)
@@ -376,7 +377,8 @@ export const useSpaces = () => {
         updateData.suspension_reason = null
       }
 
-      const { data, error: updateError } = await db.spaces
+      const { data, error: updateError } = await supabase
+        .from('listings')
         .update(updateData)
         .eq('id', spaceId)
         .select()
@@ -553,7 +555,8 @@ export const useSpaces = () => {
         updateData.approved_by = user?.id
       }
 
-      const { data, error: updateError } = await db.spaces
+      const { data, error: updateError } = await supabase
+        .from('listings')
         .update(updateData)
         .in('id', spaceIds)
         .select()
@@ -651,13 +654,13 @@ export const useSpaces = () => {
     }
   }
 
-  // Get space statistics
+  // Get space statistics - case-insensitive status matching
   const getSpaceStats = () => {
     const total = spaces.length
-    const pending = spaces.filter(s => s.status === 'pending').length
-    const active = spaces.filter(s => s.status === 'active').length
-    const suspended = spaces.filter(s => s.status === 'suspended').length
-    const rejected = spaces.filter(s => s.status === 'rejected').length
+    const pending = spaces.filter(s => (s.status || '').toLowerCase() === 'pending').length
+    const active = spaces.filter(s => (s.status || '').toLowerCase() === 'active').length
+    const suspended = spaces.filter(s => (s.status || '').toLowerCase() === 'suspended').length
+    const rejected = spaces.filter(s => (s.status || '').toLowerCase() === 'rejected').length
 
     return {
       total,
@@ -669,9 +672,10 @@ export const useSpaces = () => {
   }
 
   // Filter spaces based on criteria
-  const filterSpaces = (filters) => {
+  const filterSpaces = (filters, categories = []) => {
     console.log('🔍 Filtering spaces with filters:', filters)
     console.log('📊 Total spaces before filtering:', spaces.length)
+    console.log('📋 Available categories:', categories)
     
     let filtered = [...spaces]
     console.log('📊 Spaces after copying:', filtered.length)
@@ -686,17 +690,67 @@ export const useSpaces = () => {
       )
     }
 
-    // Status filter
+    // Status filter - case-insensitive matching
     if (filters.status && filters.status !== 'all') {
-      filtered = filtered.filter(space => space.status === filters.status)
+      const statusFilter = filters.status.toLowerCase().trim()
+      const beforeCount = filtered.length
+      
+      filtered = filtered.filter(space => {
+        // Normalize space status - handle null, undefined, and case variations
+        const spaceStatus = (space.status || 'pending').toLowerCase().trim()
+        const matches = spaceStatus === statusFilter
+        
+        return matches
+      })
+      
+      console.log(`📊 Status filter: ${beforeCount} → ${filtered.length} spaces (filter: "${filters.status}")`)
     }
 
-    // Category filter
+    // Category filter - match by main category
     if (filters.category && filters.category !== 'all') {
-      filtered = filtered.filter(space => 
-        space.category === filters.category || 
-        space.sub_category === filters.category
+      // Find the selected category from the categories list
+      const selectedCategory = categories.find(cat => 
+        (cat.id === filters.category) || 
+        (cat.name === filters.category) ||
+        (cat.label === filters.category)
       )
+      
+      if (selectedCategory) {
+        // Get all possible matches for this category
+        const categoryMatches = [
+          selectedCategory.name,           // e.g., "office"
+          selectedCategory.label,          // e.g., "Office Space"
+          selectedCategory.label.split(' ')[0], // e.g., "Office" from "Office Space"
+          selectedCategory.id              // e.g., "office"
+        ].filter(Boolean) // Remove any undefined/null values
+        
+        console.log('🎯 Filtering by category:', selectedCategory.label, 'Matches:', categoryMatches)
+        
+        filtered = filtered.filter(space => {
+          const spaceCategory = space.category || ''
+          const spaceSubCategory = space.sub_category || ''
+          
+          // Check if space category matches any of our category matches
+          const matches = categoryMatches.some(match => {
+            // Case-insensitive comparison
+            const matchLower = match.toLowerCase()
+            const spaceCategoryLower = spaceCategory.toLowerCase()
+            const spaceSubCategoryLower = spaceSubCategory.toLowerCase()
+            
+            return spaceCategoryLower === matchLower ||
+                   spaceCategoryLower.includes(matchLower) ||
+                   matchLower.includes(spaceCategoryLower) ||
+                   spaceSubCategoryLower === matchLower ||
+                   spaceSubCategoryLower.includes(matchLower)
+          })
+          
+          return matches
+        })
+        
+        console.log('✅ Spaces after category filter:', filtered.length)
+      } else {
+        console.warn('⚠️ Selected category not found in categories list:', filters.category)
+      }
     }
 
 
@@ -731,63 +785,97 @@ export const useSpaces = () => {
     try {
       console.log('🔧 Adding sample data to database...')
       
+      // Get a valid partner_id (or use null if none exists)
+      let partnerId = null
+      try {
+        const { data: partners } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('role', 'partner')
+          .limit(1)
+        
+        if (partners && partners.length > 0) {
+          partnerId = partners[0].id
+          console.log('✅ Found partner ID for sample data:', partnerId)
+        } else {
+          console.warn('⚠️ No partner found, sample spaces will have null partner_id')
+        }
+      } catch (err) {
+        console.warn('⚠️ Error fetching partner ID:', err)
+      }
+      
+      // Sample data matching the actual listings table structure
       const sampleSpaces = [
         {
           name: 'Modern Coworking Space',
-          description: 'A vibrant coworking environment with all amenities',
-          category: 'office',
-          sub_category: 'coworking',
+          description: 'A vibrant coworking environment with all amenities. Perfect for remote workers and small teams.',
+          category: 'Office',
+          subcategory: 'Coworking Space',
           capacity: 20,
-          size_sqft: 800,
-          price_per_hour: 15,
-          price_per_day: 120,
-          status: 'active',
-          address: '789 Innovation Blvd',
-          city: 'San Francisco',
-          state: 'CA',
-          zip_code: '94105',
-          country: 'USA',
+          area: 800,
+          hourly_price: 15,
+          daily_price: 120,
+          status: 'pending', // Start as pending so admin can approve
+          address: '789 Innovation Blvd, San Francisco, CA 94105, USA',
           amenities: ['WiFi', 'Coffee', 'Printing', 'Parking'],
-          images: ['/assets/images/no_image.png'],
-          partner_id: null, // Will be set to a real user ID
-          submitted_at: new Date().toISOString(),
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          images: [],
+          partner_id: partnerId,
+          booking_type: 'approval',
+          pricing_period: 'Hourly',
+          submitted_at: new Date().toISOString()
         },
         {
           name: 'Retail Storefront',
-          description: 'Prime retail location in busy shopping district',
-          category: 'retail',
-          sub_category: 'storefront',
+          description: 'Prime retail location in busy shopping district. Great visibility and foot traffic.',
+          category: 'Retail',
+          subcategory: 'Storefront',
           capacity: 50,
-          size_sqft: 1200,
-          price_per_hour: 30,
-          price_per_day: 240,
+          area: 1200,
+          hourly_price: 30,
+          daily_price: 240,
           status: 'pending',
-          address: '321 Commerce St',
-          city: 'Chicago',
-          state: 'IL',
-          zip_code: '60601',
-          country: 'USA',
+          address: '321 Commerce St, Chicago, IL 60601, USA',
           amenities: ['WiFi', 'Security', 'Storage'],
-          images: ['/assets/images/no_image.png'],
-          partner_id: null,
-          submitted_at: new Date().toISOString(),
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          images: [],
+          partner_id: partnerId,
+          booking_type: 'approval',
+          pricing_period: 'Daily',
+          submitted_at: new Date().toISOString()
+        },
+        {
+          name: 'Warehouse Storage',
+          description: 'Large warehouse space suitable for storage, events, or manufacturing. High ceilings and loading dock access.',
+          category: 'Industrial',
+          subcategory: 'Warehouse',
+          capacity: 100,
+          area: 5000,
+          hourly_price: 50,
+          daily_price: 400,
+          status: 'pending',
+          address: '456 Industrial Way, Los Angeles, CA 90001, USA',
+          amenities: ['Loading Dock', 'Security', 'Parking', 'HVAC'],
+          images: [],
+          partner_id: partnerId,
+          booking_type: 'approval',
+          pricing_period: 'Daily',
+          submitted_at: new Date().toISOString()
         }
       ]
       
-      // Try to insert sample data
-      const { data: insertedData, error: insertError } = await db.spaces.insert(sampleSpaces)
+      // Insert sample data using Supabase client
+      const { data: insertedData, error: insertError } = await supabase
+        .from('listings')
+        .insert(sampleSpaces)
+        .select()
       
       if (insertError) {
         console.error('❌ Error inserting sample data:', insertError)
+        safeToast(`Failed to add sample data: ${insertError.message}`, 'error')
         return { success: false, error: insertError }
       }
       
       console.log('✅ Sample data inserted successfully:', insertedData)
-      safeToast('Sample data added to database', 'success')
+      safeToast(`Successfully added ${insertedData?.length || 0} sample spaces`, 'success')
       
       // Refresh the spaces
       await fetchSpaces()
@@ -795,7 +883,7 @@ export const useSpaces = () => {
       return { success: true, data: insertedData }
     } catch (err) {
       console.error('Error adding sample data:', err)
-      safeToast('Failed to add sample data', 'error')
+      safeToast(`Failed to add sample data: ${err.message || 'Unknown error'}`, 'error')
       return { success: false, error: err }
     }
   }

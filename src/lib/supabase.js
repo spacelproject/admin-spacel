@@ -51,7 +51,7 @@ export const db = {
   users: supabase.from('profiles'), // Your actual table name
   spaces: supabase.from('listings'), // Your actual table name
   bookings: supabase.from('bookings'), // Your actual table name
-  categories: supabase.from('categories'), // May need to create this
+  categories: supabase.from('space_categories'), // Space categories table
   reviews: supabase.from('reviews'), // Your actual table name
   messages: supabase.from('messages'), // Your actual table name
   

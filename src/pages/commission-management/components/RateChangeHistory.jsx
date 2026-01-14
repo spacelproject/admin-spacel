@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import Input from '../../../components/ui/Input';
@@ -19,166 +19,196 @@ const RateChangeHistory = () => {
   const [error, setError] = useState(null);
 
   // Fetch rate change history from platform_settings_history
-  useEffect(() => {
-    const fetchRateChangeHistory = async () => {
-      if (!isAdmin) {
-        setLoading(false);
-        return;
-      }
+  const fetchRateChangeHistory = useCallback(async () => {
+    if (!isAdmin) {
+      setLoading(false);
+      return;
+    }
 
-      try {
-        setLoading(true);
-        setError(null);
+    try {
+      setLoading(true);
+      setError(null);
 
-        // Build query for commission-related rate changes
-        let query = supabase
-          .from('platform_settings_history')
-          .select('*')
-          .or('category.eq.commission,category.eq.payment,setting_key.ilike.%commission%,setting_key.ilike.%rate%')
-          .order('created_at', { ascending: false })
-          .limit(200);
+      // Build query for commission-related rate changes
+      let query = supabase
+        .from('platform_settings_history')
+        .select('*')
+        .or('category.eq.commission,category.eq.payment,setting_key.ilike.%commission%,setting_key.ilike.%rate%')
+        .order('created_at', { ascending: false })
+        .limit(200);
 
-        // Apply date range filter
-        if (filters.dateRange !== 'all') {
-          const now = new Date();
-          let startDate = new Date();
-          
-          switch (filters.dateRange) {
-            case 'today':
-              startDate.setHours(0, 0, 0, 0);
-              break;
-            case 'week':
-              startDate.setDate(now.getDate() - 7);
-              break;
-            case 'month':
-              startDate.setMonth(now.getMonth() - 1);
-              break;
-            case 'quarter':
-              startDate.setMonth(now.getMonth() - 3);
-              break;
-            default:
-              break;
-          }
-          
-          if (filters.dateRange !== 'all') {
-            query = query.gte('created_at', startDate.toISOString());
-          }
-        }
-
-        const { data, error: fetchError } = await query;
-
-        if (fetchError) {
-          throw fetchError;
-        }
-
-        // Fetch admin user profiles
-        const userIds = [...new Set((data || []).map(entry => entry.changed_by).filter(Boolean))];
-        let userProfilesMap = {};
+      // Apply date range filter
+      if (filters.dateRange !== 'all') {
+        const now = new Date();
+        const endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999); // End of today
+        let startDate = new Date();
         
-        if (userIds.length > 0) {
-          const { data: profilesData } = await supabase
-            .from('profiles')
-            .select('id, first_name, last_name, email')
-            .in('id', userIds);
-          
-          if (profilesData) {
-            profilesData.forEach(profile => {
-              userProfilesMap[profile.id] = profile;
-            });
+        switch (filters.dateRange) {
+          case 'today':
+            startDate.setHours(0, 0, 0, 0);
+            break;
+          case 'week':
+            startDate = new Date(now);
+            startDate.setDate(now.getDate() - 7);
+            startDate.setHours(0, 0, 0, 0);
+            break;
+          case 'month':
+            startDate = new Date(now);
+            startDate.setMonth(now.getMonth() - 1);
+            startDate.setHours(0, 0, 0, 0);
+            break;
+          case 'quarter':
+            startDate = new Date(now);
+            startDate.setMonth(now.getMonth() - 3);
+            startDate.setHours(0, 0, 0, 0);
+            break;
+          default:
+            break;
+        }
+        
+        query = query.gte('created_at', startDate.toISOString())
+                   .lte('created_at', endDate.toISOString());
+      }
+
+      const { data, error: fetchError } = await query;
+
+      if (fetchError) {
+        throw fetchError;
+      }
+
+      // Fetch admin user profiles
+      const userIds = [...new Set((data || []).map(entry => entry.changed_by).filter(Boolean))];
+      let userProfilesMap = {};
+      
+      if (userIds.length > 0) {
+        const { data: profilesData } = await supabase
+          .from('profiles')
+          .select('id, first_name, last_name, email')
+          .in('id', userIds);
+        
+        if (profilesData) {
+          profilesData.forEach(profile => {
+            userProfilesMap[profile.id] = profile;
+          });
+        }
+      }
+
+      // Transform data to match component format
+      const transformedChanges = (data || []).map((entry) => {
+        const user = userProfilesMap[entry.changed_by];
+        const adminName = user 
+          ? `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email || 'Unknown'
+          : entry.changed_by_name || 'Unknown Admin';
+        const adminEmail = user?.email || entry.changed_by_email || 'N/A';
+
+        // Parse old and new values
+        let oldRate = null;
+        let newRate = null;
+        
+        try {
+          const oldValue = typeof entry.old_value === 'string' 
+            ? JSON.parse(entry.old_value) 
+            : entry.old_value;
+          const newValue = typeof entry.new_value === 'string' 
+            ? JSON.parse(entry.new_value) 
+            : entry.new_value;
+
+          // Extract rate values based on setting type
+          if (typeof oldValue === 'number') {
+            oldRate = oldValue;
+          } else if (oldValue && typeof oldValue === 'object') {
+            oldRate = oldValue.value || oldValue.rate || oldValue.percentage || null;
           }
+
+          if (typeof newValue === 'number') {
+            newRate = newValue;
+          } else if (newValue && typeof newValue === 'object') {
+            newRate = newValue.value || newValue.rate || newValue.percentage || null;
+          }
+
+          // If still null, try to parse as percentage strings
+          if (oldRate === null && typeof oldValue === 'string' && oldValue.includes('%')) {
+            oldRate = parseFloat(oldValue.replace('%', ''));
+          }
+          if (newRate === null && typeof newValue === 'string' && newValue.includes('%')) {
+            newRate = parseFloat(newValue.replace('%', ''));
+          }
+        } catch (e) {
+          // If parsing fails, try direct numeric conversion
+          if (typeof entry.old_value === 'number') oldRate = entry.old_value;
+          if (typeof entry.new_value === 'number') newRate = entry.new_value;
         }
 
-        // Transform data to match component format
-        const transformedChanges = (data || []).map((entry) => {
-          const user = userProfilesMap[entry.changed_by];
-          const adminName = user 
-            ? `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email || 'Unknown'
-            : entry.changed_by_name || 'Unknown Admin';
-          const adminEmail = user?.email || entry.changed_by_email || 'N/A';
+        // Determine change type based on setting_key
+        let changeType = 'default-rate';
+        let category = null;
+        
+        if (entry.setting_key?.includes('seeker') || entry.setting_key?.includes('guest')) {
+          changeType = 'category-rate';
+          category = 'seeker';
+        } else if (entry.setting_key?.includes('partner') || entry.setting_key?.includes('host')) {
+          changeType = 'category-rate';
+          category = 'partner';
+        } else if (entry.setting_key?.includes('promotional') || entry.setting_key?.includes('promo')) {
+          changeType = 'promotional-rate';
+        } else if (entry.setting_key?.includes('bulk') || entry.setting_key?.includes('all')) {
+          changeType = 'bulk-adjustment';
+        }
 
-          // Parse old and new values
-          let oldRate = null;
-          let newRate = null;
-          
-          try {
-            const oldValue = typeof entry.old_value === 'string' 
-              ? JSON.parse(entry.old_value) 
-              : entry.old_value;
-            const newValue = typeof entry.new_value === 'string' 
-              ? JSON.parse(entry.new_value) 
-              : entry.new_value;
+        return {
+          id: entry.id,
+          timestamp: entry.created_at,
+          admin: {
+            name: adminName,
+            email: adminEmail
+          },
+          changeType,
+          category,
+          oldRate: oldRate !== null ? (typeof oldRate === 'number' ? oldRate : parseFloat(oldRate)) : null,
+          newRate: newRate !== null ? (typeof newRate === 'number' ? newRate : parseFloat(newRate)) : null,
+          reason: entry.change_reason || `Changed ${entry.setting_key} in ${entry.category || 'settings'}`,
+          settingKey: entry.setting_key,
+          impactLevel: entry.impact_level || 'medium'
+        };
+      });
 
-            // Extract rate values based on setting type
-            if (typeof oldValue === 'number') {
-              oldRate = oldValue;
-            } else if (oldValue && typeof oldValue === 'object') {
-              oldRate = oldValue.value || oldValue.rate || oldValue.percentage || null;
-            }
-
-            if (typeof newValue === 'number') {
-              newRate = newValue;
-            } else if (newValue && typeof newValue === 'object') {
-              newRate = newValue.value || newValue.rate || newValue.percentage || null;
-            }
-
-            // If still null, try to parse as percentage strings
-            if (oldRate === null && typeof oldValue === 'string' && oldValue.includes('%')) {
-              oldRate = parseFloat(oldValue.replace('%', ''));
-            }
-            if (newRate === null && typeof newValue === 'string' && newValue.includes('%')) {
-              newRate = parseFloat(newValue.replace('%', ''));
-            }
-          } catch (e) {
-            // If parsing fails, try direct numeric conversion
-            if (typeof entry.old_value === 'number') oldRate = entry.old_value;
-            if (typeof entry.new_value === 'number') newRate = entry.new_value;
-          }
-
-          // Determine change type based on setting_key
-          let changeType = 'default-rate';
-          let category = null;
-          
-          if (entry.setting_key?.includes('seeker') || entry.setting_key?.includes('guest')) {
-            changeType = 'category-rate';
-            category = 'seeker';
-          } else if (entry.setting_key?.includes('partner') || entry.setting_key?.includes('host')) {
-            changeType = 'category-rate';
-            category = 'partner';
-          } else if (entry.setting_key?.includes('promotional') || entry.setting_key?.includes('promo')) {
-            changeType = 'promotional-rate';
-          } else if (entry.setting_key?.includes('bulk') || entry.setting_key?.includes('all')) {
-            changeType = 'bulk-adjustment';
-          }
-
-          return {
-            id: entry.id,
-            timestamp: entry.created_at,
-            admin: {
-              name: adminName,
-              email: adminEmail
-            },
-            changeType,
-            category,
-            oldRate: oldRate !== null ? (typeof oldRate === 'number' ? oldRate : parseFloat(oldRate)) : null,
-            newRate: newRate !== null ? (typeof newRate === 'number' ? newRate : parseFloat(newRate)) : null,
-            reason: entry.change_reason || `Changed ${entry.setting_key} in ${entry.category || 'settings'}`,
-            settingKey: entry.setting_key,
-            impactLevel: entry.impact_level || 'medium'
-          };
-        });
-
-        setRateChanges(transformedChanges);
-      } catch (err) {
-        console.error('Error fetching rate change history:', err);
-        setError(err.message);
-        setRateChanges([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchRateChangeHistory();
+      setRateChanges(transformedChanges);
+    } catch (err) {
+      console.error('Error fetching rate change history:', err);
+      setError(err.message);
+      setRateChanges([]);
+    } finally {
+      setLoading(false);
+    }
   }, [isAdmin, filters.dateRange]);
+
+  useEffect(() => {
+    fetchRateChangeHistory();
+
+    // Set up real-time subscription for rate changes
+    if (isAdmin) {
+      const channel = supabase
+        .channel('rate_change_history_updates')
+        .on('postgres_changes', 
+          { 
+            event: '*', 
+            schema: 'public', 
+            table: 'platform_settings_history',
+            filter: 'category=eq.commission'
+          }, 
+          () => {
+            console.log('Rate change detected, refreshing history...');
+            fetchRateChangeHistory();
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
+  }, [isAdmin, fetchRateChangeHistory]);
 
   // Mock rate change history data (fallback)
   const mockRateChanges = [
@@ -300,13 +330,20 @@ const RateChangeHistory = () => {
   };
 
   const formatTimestamp = (timestamp) => {
-    return new Date(timestamp).toLocaleString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    if (!timestamp) return 'N/A';
+    try {
+      const date = new Date(timestamp);
+      if (isNaN(date.getTime())) return 'Invalid Date';
+      return date.toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (e) {
+      return 'Invalid Date';
+    }
   };
 
   const filteredChanges = useMemo(() => {
@@ -322,26 +359,39 @@ const RateChangeHistory = () => {
   }, [rateChanges, filters.admin, filters.changeType]);
 
   const handleExport = () => {
-    // Export functionality
-    const csvContent = [
-      ['Date', 'Admin', 'Change Type', 'Category', 'Old Rate', 'New Rate', 'Reason'].join(','),
+    // Export functionality with proper CSV escaping
+    const escapeCSV = (value) => {
+      if (value === null || value === undefined) return '';
+      const stringValue = String(value);
+      // If value contains comma, quote, or newline, wrap in quotes and escape quotes
+      if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+        return `"${stringValue.replace(/"/g, '""')}"`;
+      }
+      return stringValue;
+    };
+
+    const csvRows = [
+      ['Date', 'Admin', 'Change Type', 'Category', 'Old Rate', 'New Rate', 'Reason'].map(escapeCSV).join(','),
       ...filteredChanges.map(change => [
-        new Date(change.timestamp).toLocaleString(),
-        change.admin.name,
+        change.timestamp ? new Date(change.timestamp).toLocaleString('en-US') : 'N/A',
+        change.admin.name || 'Unknown',
         getChangeTypeLabel(change.changeType),
         change.category || 'N/A',
         change.oldRate !== null ? `${change.oldRate}%` : 'N/A',
         change.newRate !== null ? `${change.newRate}%` : 'N/A',
-        change.reason
-      ].join(','))
-    ].join('\n');
+        change.reason || 'N/A'
+      ].map(escapeCSV).join(','))
+    ];
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `rate-change-history-${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     window.URL.revokeObjectURL(url);
   };
 

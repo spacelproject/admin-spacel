@@ -203,7 +203,7 @@ const CommissionManagement = () => {
 
           {activeTab === 'history' && (
             <div className="w-full">
-              <RateChangeHistory bookings={bookings} />
+              <RateChangeHistory />
             </div>
           )}
         </main>

@@ -285,9 +285,6 @@ const PromotionalRatesTable = () => {
                   Partner
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Type
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Rate
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -307,7 +304,7 @@ const PromotionalRatesTable = () => {
             <tbody className="divide-y divide-border">
               {filteredRates.length === 0 ? (
                 <tr>
-                  <td colSpan="8" className="px-4 py-8 text-center text-muted-foreground">
+                  <td colSpan="7" className="px-4 py-8 text-center text-muted-foreground">
                     <Icon name="Inbox" size={32} className="mx-auto mb-2 opacity-50" />
                     <p>No promotional rates found</p>
                   </td>
@@ -331,16 +328,6 @@ const PromotionalRatesTable = () => {
                           />
                           <span>{formatPartnerName(rate)}</span>
                         </div>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-foreground">
-                        <span className="inline-flex items-center space-x-1">
-                          <Icon 
-                            name={isPartnerRate ? "Building" : "User"} 
-                            size={14} 
-                            className="text-muted-foreground" 
-                          />
-                          <span>{isPartnerRate ? 'Partner' : 'Seeker'}</span>
-                        </span>
                       </td>
                       <td className="px-4 py-3 text-sm text-foreground font-medium">
                         {isPartnerRate ? rate.partner_commission_rate : rate.seeker_commission_rate}%

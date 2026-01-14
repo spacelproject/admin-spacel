@@ -59,33 +59,102 @@ const SpaceManagement = () => {
     updatingSpaceId
   } = useSpaces();
 
-  // Category management state - using default categories for now
-  const [categories, setCategories] = useState([
-    { id: 'office', name: 'Office Space', label: 'Office Space', subCategories: [
-      { id: 'private_office', name: 'Private Office', label: 'Private Office' },
-      { id: 'coworking', name: 'Coworking Space', label: 'Coworking Space' }
-    ]},
-    { id: 'retail', name: 'Retail Space', label: 'Retail Space', subCategories: [
-      { id: 'storefront', name: 'Storefront', label: 'Storefront' },
-      { id: 'popup_shop', name: 'Pop-up Shop', label: 'Pop-up Shop' }
-    ]},
-    { id: 'industrial', name: 'Industrial Space', label: 'Industrial Space', subCategories: [
-      { id: 'warehouse', name: 'Warehouse', label: 'Warehouse' },
-      { id: 'manufacturing', name: 'Manufacturing', label: 'Manufacturing' }
-    ]},
-    { id: 'hospitality', name: 'Hospitality Space', label: 'Hospitality Space', subCategories: [] },
-    { id: 'healthcare', name: 'Healthcare Space', label: 'Healthcare Space', subCategories: [] },
-    { id: 'mixed', name: 'Mixed Use Space', label: 'Mixed Use Space', subCategories: [] },
-    { id: 'farm', name: 'Farm Space', label: 'Farm Space', subCategories: [] },
-    { id: 'creative', name: 'Creative Space', label: 'Creative Space', subCategories: [] },
-    { id: 'entertainment', name: 'Entertainment Space', label: 'Entertainment Space', subCategories: [
-      { id: 'event_hall', name: 'Event Hall', label: 'Event Hall' },
-      { id: 'meeting_room', name: 'Meeting Room', label: 'Meeting Room' }
-    ]}
-  ]);
+  // Categories are now managed by CategoryManagement component via useCategories hook
+  // We still need categories for filtering, so we'll fetch them separately
+  const [categories, setCategories] = useState([]);
+  
+  // Fetch categories for filtering (using same tables as user app)
+  useEffect(() => {
+    const fetchCategoriesForFilter = async () => {
+      try {
+        // Fetch main categories
+        const { data: mainCategories, error: mainError } = await supabase
+          .from('main_categories')
+          .select('*')
+          .eq('is_active', true)
+          .order('display_order', { ascending: true });
+
+        if (mainError) {
+          console.warn('Error fetching main categories for filter:', mainError);
+          return;
+        }
+
+        // Fetch sub categories
+        const { data: subCategories, error: subError } = await supabase
+          .from('sub_categories')
+          .select('*')
+          .eq('is_active', true)
+          .order('display_order', { ascending: true });
+
+        if (subError) {
+          console.warn('Error fetching sub categories for filter:', subError);
+          return;
+        }
+
+        // Fetch relationships
+        const { data: relationships, error: relError } = await supabase
+          .from('main_category_sub_categories')
+          .select('*')
+          .order('display_order', { ascending: true });
+
+        if (relError) {
+          console.warn('Error fetching category relationships for filter:', relError);
+          return;
+        }
+
+        // Transform to UI format
+        const transformed = (mainCategories || []).map(mainCat => {
+          const linkedSubIds = (relationships || [])
+            .filter(rel => rel.main_category_id === mainCat.id)
+            .map(rel => rel.sub_category_id);
+
+          const subs = (subCategories || [])
+            .filter(sub => linkedSubIds.includes(sub.id))
+            .sort((a, b) => {
+              const aOrder = relationships.find(r => r.sub_category_id === a.id && r.main_category_id === mainCat.id)?.display_order || 0;
+              const bOrder = relationships.find(r => r.sub_category_id === b.id && r.main_category_id === mainCat.id)?.display_order || 0;
+              return aOrder - bOrder;
+            })
+            .map(sub => ({
+              id: sub.name,
+              name: sub.name,
+              label: sub.name
+            }));
+
+          return {
+            id: mainCat.name,
+            name: mainCat.name,
+            label: mainCat.name,
+            subCategories: subs
+          };
+        });
+
+        setCategories(transformed);
+        console.log('✅ Categories loaded for filter:', transformed.length, 'main categories');
+      } catch (err) {
+        console.warn('Error fetching categories:', err);
+      }
+    };
+
+    fetchCategoriesForFilter();
+    
+    // Refresh categories every 30 seconds or when page becomes visible
+    const interval = setInterval(fetchCategoriesForFilter, 30000);
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        fetchCategoriesForFilter();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
 
   // Get filtered spaces based on current filters
-  const filteredSpaces = filterSpaces(filters);
+  const filteredSpaces = filterSpaces(filters, categories);
 
   // Get current page spaces
   const getCurrentPageSpaces = () => {
@@ -146,13 +215,72 @@ const SpaceManagement = () => {
   const handleBulkAction = async (action) => {
     if (selectedSpaces.length === 0) return;
 
-    const newStatus = action === 'approve' ? 'active' : 
+    // Handle delete action separately
+    if (action === 'delete') {
+      const confirmed = window.confirm(
+        `Are you sure you want to delete ${selectedSpaces.length} space(s)? This action cannot be undone.`
+      );
+      if (!confirmed) return;
+
+      try {
+        console.log('🗑️ Deleting spaces:', selectedSpaces);
+        
+        // Soft delete by setting status to 'deleted'
+        const { data, error } = await supabase
+          .from('listings')
+          .update({ 
+            status: 'deleted',
+            updated_at: new Date().toISOString()
+          })
+          .in('id', selectedSpaces)
+          .select('id, name, status');
+
+        if (error) {
+          console.error('❌ Error deleting spaces:', error);
+          alert(`Failed to delete spaces: ${error.message}`);
+          return;
+        }
+
+        if (!data || data.length === 0) {
+          console.warn('⚠️ No spaces were updated. They may have already been deleted.');
+          alert('No spaces were deleted. They may have already been deleted or do not exist.');
+          setSelectedSpaces([]);
+          return;
+        }
+
+        console.log('✅ Spaces deleted successfully:', data);
+        console.log(`✅ Deleted ${data.length} of ${selectedSpaces.length} space(s)`);
+        
+        const deletedCount = data.length;
+        setSelectedSpaces([]);
+        
+        // Refresh spaces list to remove deleted spaces from UI
+        // The fetchSpaces query now excludes deleted spaces, so they will disappear
+        if (refresh) {
+          console.log('🔄 Refreshing spaces list...');
+          await refresh();
+          console.log('✅ Spaces list refreshed');
+        }
+        
+        // Show success message
+        alert(`Successfully deleted ${deletedCount} space(s)`);
+      } catch (err) {
+        console.error('❌ Error deleting spaces:', err);
+        alert(`Failed to delete spaces: ${err.message || 'Unknown error'}`);
+      }
+      return;
+    }
+
+    // Handle activate action (same as approve)
+    const newStatus = action === 'approve' || action === 'activate' ? 'active' : 
                      action === 'reject' ? 'rejected' :
                      action === 'suspend' ? 'suspended' : null;
     
     if (newStatus) {
       await bulkUpdateSpaces(selectedSpaces, newStatus);
       setSelectedSpaces([]);
+    } else {
+      console.warn('Unknown bulk action:', action);
     }
   };
 
@@ -276,8 +404,44 @@ const SpaceManagement = () => {
     }
   };
 
-  const handleCategoriesUpdate = (updatedCategories) => {
-    setCategories(updatedCategories);
+  // Refresh categories when they're updated (called by CategoryManagement via real-time or manual refresh)
+  const refreshCategories = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('space_categories')
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+
+      if (error) {
+        console.warn('Error refreshing categories:', error);
+        return;
+      }
+
+      const mainCategories = (data || []).filter(cat => !cat.parent_id);
+      const subCategories = (data || []).filter(cat => cat.parent_id);
+
+      const transformed = mainCategories.map(mainCat => {
+        const subs = subCategories
+          .filter(sub => sub.parent_id === mainCat.id)
+          .map(sub => ({
+            id: sub.name,
+            name: sub.name,
+            label: sub.label
+          }));
+
+        return {
+          id: mainCat.name,
+          name: mainCat.name,
+          label: mainCat.label,
+          subCategories: subs
+        };
+      });
+
+      setCategories(transformed);
+    } catch (err) {
+      console.warn('Error refreshing categories:', err);
+    }
   };
 
   // Handle page changes
@@ -369,10 +533,7 @@ const SpaceManagement = () => {
           <SpaceStats stats={stats} />
           
           {/* Category Management */}
-          <CategoryManagement 
-            categories={categories}
-            onCategoriesUpdate={handleCategoriesUpdate}
-          />
+          <CategoryManagement />
           
           {/* Filters */}
           <SpaceFilters 

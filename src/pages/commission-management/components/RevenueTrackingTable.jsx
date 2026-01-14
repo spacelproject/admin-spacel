@@ -1,10 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import Input from '../../../components/ui/Input';
 import Select from '../../../components/ui/Select';
 import Image from '../../../components/AppImage';
 import TransactionDetailsModal from './TransactionDetailsModal';
+import { supabase } from '../../../lib/supabase';
 
 const RevenueTrackingTable = ({ bookings, onExport }) => {
   const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
@@ -20,6 +21,8 @@ const RevenueTrackingTable = ({ bookings, onExport }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [showCustomDateRange, setShowCustomDateRange] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState(null);
+  const [categories, setCategories] = useState([]);
+  const [loadingCategories, setLoadingCategories] = useState(true);
   const itemsPerPage = 10;
 
   // Use only real data from props
@@ -48,7 +51,11 @@ const RevenueTrackingTable = ({ bookings, onExport }) => {
         // For partial refunds, this includes the full application fee (platform keeps it)
         platformEarnings: platformEarnings,
         hostPayout: booking.hostPayout,
-        date: booking.bookingDate.toISOString().split('T')[0],
+        date: booking.bookingDate && booking.bookingDate instanceof Date 
+          ? booking.bookingDate.toISOString().split('T')[0]
+          : booking.bookingDate 
+            ? new Date(booking.bookingDate).toISOString().split('T')[0]
+            : '',
         status: booking.paymentStatus || booking.bookingStatus || 'pending',
         // Refund information
         refundAmount: booking.refundAmount || 0,
@@ -59,6 +66,40 @@ const RevenueTrackingTable = ({ bookings, onExport }) => {
         bookingData: booking // Store full booking data for modal
       }
     }) : [];
+
+  // Fetch categories from database
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        setLoadingCategories(true);
+        const { data: mainCategories, error } = await supabase
+          .from('main_categories')
+          .select('name')
+          .eq('is_active', true)
+          .order('display_order', { ascending: true });
+
+        if (error) {
+          console.error('Error fetching categories:', error);
+          // Fallback to empty array
+          setCategories([]);
+        } else {
+          // Transform to options format
+          const categoryOptions = (mainCategories || []).map(cat => ({
+            value: cat.name,
+            label: cat.name
+          }));
+          setCategories(categoryOptions);
+        }
+      } catch (err) {
+        console.error('Error fetching categories:', err);
+        setCategories([]);
+      } finally {
+        setLoadingCategories(false);
+      }
+    };
+
+    fetchCategories();
+  }, []);
 
   const dateRangeOptions = [
     { value: 'all', label: 'All Time' },
@@ -76,15 +117,7 @@ const RevenueTrackingTable = ({ bookings, onExport }) => {
 
   const categoryOptions = [
     { value: 'all', label: 'All Categories' },
-    { value: 'office', label: 'Office' },
-    { value: 'retail', label: 'Retail' },
-    { value: 'industrial', label: 'Industrial' },
-    { value: 'hospitality', label: 'Hospitality' },
-    { value: 'healthcare', label: 'Healthcare' },
-    { value: 'mixed', label: 'Mixed' },
-    { value: 'farm', label: 'Farm' },
-    { value: 'creative', label: 'Creative' },
-    { value: 'entertainment', label: 'Entertainment' }
+    ...categories
   ];
 
   const filteredTransactions = useMemo(() => {
@@ -92,8 +125,13 @@ const RevenueTrackingTable = ({ bookings, onExport }) => {
       if (filters?.host && !transaction?.host?.name?.toLowerCase()?.includes(filters?.host?.toLowerCase())) {
         return false;
       }
-      if (filters?.category !== 'all' && transaction?.space?.category !== filters?.category) {
-        return false;
+      // Case-insensitive category filtering
+      if (filters?.category !== 'all' && filters?.category) {
+        const transactionCategory = (transaction?.space?.category || '').toLowerCase().trim();
+        const filterCategory = filters.category.toLowerCase().trim();
+        if (transactionCategory !== filterCategory) {
+          return false;
+        }
       }
       if (filters?.minAmount && transaction?.bookingAmount < parseFloat(filters?.minAmount)) {
         return false;
@@ -270,7 +308,8 @@ const RevenueTrackingTable = ({ bookings, onExport }) => {
   };
 
   const getCategoryLabel = (category) => {
-    const option = categoryOptions?.find(opt => opt?.value === category);
+    if (!category) return 'Unknown';
+    const option = categoryOptions?.find(opt => opt?.value?.toLowerCase() === category?.toLowerCase());
     return option ? option?.label : category;
   };
 
@@ -312,6 +351,7 @@ const RevenueTrackingTable = ({ bookings, onExport }) => {
               options={categoryOptions}
               value={filters?.category}
               onChange={(value) => handleFilterChange('category', value)}
+              clearable={true}
             />
 
             <Input
@@ -538,7 +578,12 @@ const RevenueTrackingTable = ({ bookings, onExport }) => {
                 </td>
                 <td className="p-4">
                   <span className="text-sm text-muted-foreground">
-                    {new Date(transaction.date)?.toLocaleDateString('en-US')}
+                    {transaction.date 
+                      ? (() => {
+                          const date = new Date(transaction.date);
+                          return isNaN(date.getTime()) ? 'Invalid Date' : date.toLocaleDateString('en-US');
+                        })()
+                      : 'N/A'}
                   </span>
                 </td>
                 <td className="p-4">

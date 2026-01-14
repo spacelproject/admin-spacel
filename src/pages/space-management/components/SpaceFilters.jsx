@@ -8,8 +8,8 @@ import Button from '../../../components/ui/Button';
 const SpaceFilters = ({ categories = [], onFiltersChange, onClearFilters, currentFilters = {} }) => {
   const [filters, setFilters] = useState({
     search: '',
-    category: '',
-    status: '',
+    category: 'all',
+    status: 'all',
     priceRange: { min: '', max: '' },
     amenities: []
   });
@@ -23,21 +23,17 @@ const SpaceFilters = ({ categories = [], onFiltersChange, onClearFilters, curren
     }
   }, [currentFilters]);
 
-  // Generate category options from dynamic categories
+  // Generate category options from main categories only (no subcategories)
   const categoryOptions = [
-    { value: '', label: 'All Categories' },
-    ...categories?.map(cat => ({ value: cat?.id, label: cat?.label })),
-    // Add subcategories as separate options
-    ...categories?.flatMap(cat => 
-      (cat?.subCategories || [])?.map(subCat => ({
-        value: subCat?.id,
-        label: `${cat?.label} - ${subCat?.label}`
-      }))
-    )
+    { value: 'all', label: 'All Categories' },
+    ...(categories || []).map(cat => ({ 
+      value: cat?.id || cat?.name, 
+      label: cat?.label || cat?.name 
+    }))
   ];
 
   const statusOptions = [
-    { value: '', label: 'All Status' },
+    { value: 'all', label: 'All Status' },
     { value: 'pending', label: 'Pending Approval' },
     { value: 'active', label: 'Active' },
     { value: 'suspended', label: 'Suspended' },
@@ -81,8 +77,8 @@ const SpaceFilters = ({ categories = [], onFiltersChange, onClearFilters, curren
   const handleClearAll = () => {
     const clearedFilters = {
       search: '',
-      category: '',
-      status: '',
+      category: 'all',
+      status: 'all',
       priceRange: { min: '', max: '' },
       amenities: []
     };
@@ -90,8 +86,10 @@ const SpaceFilters = ({ categories = [], onFiltersChange, onClearFilters, curren
     onClearFilters();
   };
 
-  const hasActiveFilters = filters?.search || filters?.category || 
-    filters?.status || filters?.priceRange?.min || filters?.priceRange?.max || 
+  const hasActiveFilters = filters?.search || 
+    (filters?.category && filters?.category !== 'all') || 
+    (filters?.status && filters?.status !== 'all') || 
+    filters?.priceRange?.min || filters?.priceRange?.max || 
     filters?.amenities?.length > 0;
 
   return (
@@ -108,16 +106,26 @@ const SpaceFilters = ({ categories = [], onFiltersChange, onClearFilters, curren
         
         <Select
           options={categoryOptions}
-          value={filters?.category}
-          onChange={(value) => handleFilterChange('category', value)}
+          value={filters?.category || 'all'}
+          onChange={(value) => {
+            // Handle clear button - when value is empty, set to 'all'
+            const newValue = value === '' || value === null || value === undefined ? 'all' : value;
+            handleFilterChange('category', newValue);
+          }}
           placeholder="Select category"
+          clearable={true}
         />
         
         <Select
           options={statusOptions}
-          value={filters?.status}
-          onChange={(value) => handleFilterChange('status', value)}
+          value={filters?.status || 'all'}
+          onChange={(value) => {
+            // Handle clear button - when value is empty, set to 'all'
+            const newValue = value === '' || value === null || value === undefined ? 'all' : value;
+            handleFilterChange('status', newValue);
+          }}
           placeholder="Select status"
+          clearable={true}
         />
       </div>
       {/* Advanced Filters Toggle */}

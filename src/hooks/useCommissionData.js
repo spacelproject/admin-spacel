@@ -833,9 +833,84 @@ const useCommissionData = () => {
   }, [])
 
   const exportCommissionData = useCallback(async () => {
-    // Implementation for exporting commission data
-    console.log('Exporting commission data...')
-  }, [])
+    try {
+      console.log('📊 Exporting commission data...')
+      
+      if (!commissionData.bookings || commissionData.bookings.length === 0) {
+        throw new Error('No commission data available to export')
+      }
+
+      // Prepare export data - only include specified columns
+      const exportRows = commissionData.bookings.map(booking => ({
+        'Reference': booking.bookingId || booking.booking_reference || '',
+        'Host': booking.hostName || '',
+        'Space': booking.spaceName || '',
+        'Booking Amount': booking.bookingAmount?.toFixed(2) || '0.00',
+        'Platform Earnings': booking.platformEarnings?.toFixed(2) || '0.00',
+        'Host Payout': booking.hostPayout?.toFixed(2) || '0.00',
+        'Status': booking.paymentStatus === 'paid' ? 'Successful' : 
+                 booking.paymentStatus === 'refunded' 
+                   ? (booking.is50_50Split ? '50/50 Refund' : 
+                      booking.isPartialRefund ? 'Partial Refund' : 'Full Refund')
+                   : booking.paymentStatus === 'failed' ? 'Failed' :
+                     booking.paymentStatus === 'pending' ? 'Pending' :
+                     booking.paymentStatus?.charAt(0).toUpperCase() + booking.paymentStatus?.slice(1) || 'Pending',
+        'Date': booking.bookingDate 
+          ? (booking.bookingDate instanceof Date 
+              ? booking.bookingDate.toLocaleDateString('en-US')
+              : (() => {
+                  const date = new Date(booking.bookingDate);
+                  return isNaN(date.getTime()) ? '' : date.toLocaleDateString('en-US');
+                })())
+          : ''
+      }))
+
+      // Add summary row
+      const summaryRow = {
+        'Reference': 'SUMMARY',
+        'Host': '',
+        'Space': '',
+        'Booking Amount': commissionData.summary.totalRevenue.toFixed(2),
+        'Platform Earnings': commissionData.summary.totalPlatformEarnings.toFixed(2),
+        'Host Payout': commissionData.summary.totalHostPayouts.toFixed(2),
+        'Status': '',
+        'Date': ''
+      }
+
+      // Combine data with summary
+      const allRows = [...exportRows, summaryRow]
+
+      // Generate CSV
+      const headers = Object.keys(allRows[0])
+      const csvContent = [
+        headers.join(','),
+        ...allRows.map(row => 
+          headers.map(header => {
+            const value = row[header] || ''
+            // Escape quotes and wrap in quotes
+            return `"${String(value).replace(/"/g, '""')}"`
+          }).join(',')
+        )
+      ].join('\n')
+
+      // Create and download file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+      const link = document.createElement('a')
+      const fileName = `spacel-commission-report-${new Date().toISOString().split('T')[0]}.csv`
+      link.href = URL.createObjectURL(blob)
+      link.download = fileName
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(link.href)
+
+      console.log('✅ Commission data exported successfully')
+      return { success: true, message: 'Commission report exported successfully' }
+    } catch (error) {
+      console.error('❌ Error exporting commission data:', error)
+      throw error
+    }
+  }, [commissionData])
 
   return {
     ...commissionData,
