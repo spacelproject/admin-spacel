@@ -58,8 +58,12 @@ const CategoryManagement = () => {
     
     try {
       setIsProcessing(true);
-      await createMainCategory(newMainCategory.trim());
-      showToast('Category created successfully', 'success');
+      const result = await createMainCategory(newMainCategory.trim());
+      if (result?.reactivated) {
+        showToast(`Category "${newMainCategory.trim()}" was reactivated successfully`, 'success');
+      } else {
+        showToast('Category created successfully', 'success');
+      }
       setNewMainCategory('');
     } catch (err) {
       showToast(err.message || 'Failed to create category', 'error');
@@ -260,7 +264,7 @@ const CategoryManagement = () => {
       {error && (
         <div className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-md">
           <p className="text-sm text-destructive">
-            {error.message || 'Error loading categories. Please check if the space_categories table exists.'}
+            {error.message || 'Error loading categories. Please check if the main_categories, sub_categories, and main_category_sub_categories tables exist.'}
           </p>
         </div>
       )}
@@ -497,7 +501,7 @@ const CategoryManagement = () => {
                 <div className="text-center py-8 text-muted-foreground">
                   <Icon name="FolderOpen" size={48} className="mx-auto mb-3 opacity-50" />
                   <p>No categories found in database. Add your first category above.</p>
-                  <p className="text-xs mt-2">Categories will be saved to the space_categories table.</p>
+                  <p className="text-xs mt-2">Categories will be saved to the main_categories, sub_categories, and main_category_sub_categories tables.</p>
                 </div>
               )}
               

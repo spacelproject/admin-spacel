@@ -4,7 +4,7 @@ import { logError, logDebug } from '../utils/logger';
 
 /**
  * Hook to manage space categories from the database
- * Uses the same tables as the user app: main_categories, sub_categories, and main_category_sub_categories
+ * Uses the three-table system: main_categories, sub_categories, and main_category_sub_categories
  * Handles fetching, creating, updating, and deleting categories
  */
 export const useCategories = () => {
@@ -128,10 +128,65 @@ export const useCategories = () => {
       
       logDebug('Creating main category:', categoryNameLower);
 
+      // First, check if a category with this name already exists (case-insensitive)
+      const { data: existingCategory, error: checkError } = await supabase
+        .from('main_categories')
+        .select('*')
+        .ilike('name', categoryNameLower)
+        .maybeSingle();
+
+      if (checkError && checkError.code !== 'PGRST116') {
+        throw checkError;
+      }
+
+      // If category exists
+      if (existingCategory) {
+        // If it's already active, throw error
+        if (existingCategory.is_active) {
+          throw new Error(`Category "${categoryName}" already exists and is active`);
+        }
+        
+        // If it's inactive, reactivate it
+        logDebug('Category exists but is inactive, reactivating:', existingCategory.id);
+        
+        // Get the max display_order to append at the end
+        const { data: existingCategories } = await supabase
+          .from('main_categories')
+          .select('display_order')
+          .eq('is_active', true)
+          .order('display_order', { ascending: false })
+          .limit(1);
+
+        const nextOrder = existingCategories && existingCategories.length > 0
+          ? (existingCategories[0].display_order || 0) + 1
+          : 0;
+
+        const { data: reactivated, error: updateError } = await supabase
+          .from('main_categories')
+          .update({
+            is_active: true,
+            display_order: nextOrder,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existingCategory.id)
+          .select()
+          .single();
+
+        if (updateError) {
+          throw updateError;
+        }
+
+        logDebug('Reactivated main category:', reactivated);
+        await fetchCategories();
+        return { success: true, data: reactivated, reactivated: true };
+      }
+
+      // Category doesn't exist, create new one
       // Get the max display_order to append at the end
       const { data: existingCategories } = await supabase
         .from('main_categories')
         .select('display_order')
+        .eq('is_active', true)
         .order('display_order', { ascending: false })
         .limit(1);
 
@@ -150,7 +205,7 @@ export const useCategories = () => {
         .single();
 
       if (createError) {
-        // Handle unique constraint violation
+        // Handle unique constraint violation (fallback)
         if (createError.code === '23505' || createError.code === 'PGRST116' || createError.status === 409) {
           throw new Error(`Category "${categoryName}" already exists`);
         }
@@ -185,20 +240,44 @@ export const useCategories = () => {
       
       logDebug('Creating subcategory:', subCategoryNameLower, 'for parent:', parentCategoryId);
 
-      // Check if subcategory already exists
-      const { data: existingSub } = await supabase
+      // Check if subcategory already exists (active or inactive)
+      const { data: existingSub, error: checkSubError } = await supabase
         .from('sub_categories')
-        .select('id')
+        .select('*')
         .eq('name', subCategoryNameLower)
-        .eq('is_active', true)
-        .single();
+        .maybeSingle();
+
+      if (checkSubError && checkSubError.code !== 'PGRST116') {
+        throw checkSubError;
+      }
 
       let subCategoryId;
+      let subCategoryDbData;
 
       if (existingSub) {
-        // Subcategory exists, use its ID
+        // Subcategory exists
         subCategoryId = existingSub.id;
-        logDebug('Subcategory already exists, using existing ID:', subCategoryId);
+        subCategoryDbData = existingSub;
+
+        if (!existingSub.is_active) {
+          // Reactivate if inactive
+          const { data: reactivatedSub, error: updateSubError } = await supabase
+            .from('sub_categories')
+            .update({
+              is_active: true,
+              updated_at: new Date().toISOString(),
+              display_order: existingSub.display_order || 0
+            })
+            .eq('id', existingSub.id)
+            .select()
+            .single();
+
+          if (updateSubError) throw updateSubError;
+          subCategoryDbData = reactivatedSub;
+          logDebug('Reactivated existing subcategory:', reactivatedSub);
+        } else {
+          logDebug('Subcategory already exists and is active, using existing ID:', subCategoryId);
+        }
       } else {
         // Create new subcategory
         // Get the max display_order for subcategories
@@ -230,6 +309,7 @@ export const useCategories = () => {
         }
 
         subCategoryId = newSub.id;
+        subCategoryDbData = newSub;
         logDebug('Created new subcategory:', newSub);
       }
 
@@ -354,8 +434,7 @@ export const useCategories = () => {
 
       logDebug('Soft deleted main category');
 
-      // Also soft delete all related subcategories
-      // First, get all subcategory IDs linked to this main category
+      // Get all subcategory IDs linked to this main category BEFORE deleting relationships
       const { data: relationships, error: relError } = await supabase
         .from('main_category_sub_categories')
         .select('sub_category_id')
@@ -364,19 +443,35 @@ export const useCategories = () => {
       if (relError) {
         logError('Error fetching relationships:', relError);
         // Continue anyway - main category is already deleted
-      } else if (relationships && relationships.length > 0) {
+      }
+
+      // Delete ALL relationships for this main category
+      const { error: deleteRelError } = await supabase
+        .from('main_category_sub_categories')
+        .delete()
+        .eq('main_category_id', category.dbId);
+
+      if (deleteRelError) {
+        logError('Error deleting relationships:', deleteRelError);
+        // Continue - main category is already deleted
+      } else {
+        logDebug('Deleted all relationships for main category');
+      }
+
+      // Soft delete all subcategories that were linked to this main category
+      // Check which subcategories are only linked to this main category (now that relationships are deleted)
+      if (relationships && relationships.length > 0) {
         const subCategoryIds = relationships.map(rel => rel.sub_category_id);
         
-        // Check which subcategories are only linked to this main category
         for (const subId of subCategoryIds) {
+          // Check if this subcategory is linked to any other main category
           const { data: otherRels } = await supabase
             .from('main_category_sub_categories')
             .select('id')
             .eq('sub_category_id', subId)
-            .neq('main_category_id', category.dbId)
             .limit(1);
 
-          // If subcategory is only linked to this main category, soft delete it
+          // If subcategory is not linked to any other main category, soft delete it
           if (!otherRels || otherRels.length === 0) {
             const { error: subError } = await supabase
               .from('sub_categories')
@@ -392,6 +487,61 @@ export const useCategories = () => {
             } else {
               logDebug('Soft deleted subcategory:', subId);
             }
+          } else {
+            logDebug('Subcategory still linked to other categories, keeping it active:', subId);
+          }
+        }
+      }
+
+      // Also sync to space_categories table (for user app compatibility)
+      const { error: spaceDeleteError } = await supabase
+        .from('space_categories')
+        .update({
+          is_active: false,
+          updated_at: new Date().toISOString()
+        })
+        .eq('name', category.name.toLowerCase())
+        .is('parent_id', null);
+
+      if (spaceDeleteError) {
+        logError('Error syncing main category deletion to space_categories (non-critical):', spaceDeleteError);
+      } else {
+        logDebug('Synced main category deletion to space_categories');
+      }
+
+      // Also soft delete all subcategories in space_categories that were linked to this main category
+      if (relationships && relationships.length > 0) {
+        const { data: spaceCategory } = await supabase
+          .from('space_categories')
+          .select('id')
+          .eq('name', category.name.toLowerCase())
+          .is('parent_id', null)
+          .single();
+
+        if (spaceCategory) {
+          // Get subcategory names that were linked
+          const { data: subCatData } = await supabase
+            .from('sub_categories')
+            .select('name')
+            .in('id', relationships.map(rel => rel.sub_category_id));
+
+          if (subCatData && subCatData.length > 0) {
+            for (const subCat of subCatData) {
+              const spaceSubCategoryName = subCat.name.toLowerCase().replace(/[ -]/g, '_');
+              const { error: subSyncError } = await supabase
+                .from('space_categories')
+                .update({
+                  is_active: false,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('name', spaceSubCategoryName)
+                .eq('parent_id', spaceCategory.id);
+
+              if (subSyncError) {
+                logError('Error syncing subcategory deletion to space_categories (non-critical):', subSyncError);
+              }
+            }
+            logDebug('Synced subcategory deletions to space_categories');
           }
         }
       }

@@ -407,40 +407,72 @@ const SpaceManagement = () => {
   // Refresh categories when they're updated (called by CategoryManagement via real-time or manual refresh)
   const refreshCategories = async () => {
     try {
-      const { data, error } = await supabase
-        .from('space_categories')
+      // Fetch main categories
+      const { data: mainCategories, error: mainError } = await supabase
+        .from('main_categories')
         .select('*')
         .eq('is_active', true)
-        .order('sort_order', { ascending: true });
+        .order('display_order', { ascending: true });
 
-      if (error) {
-        console.warn('Error refreshing categories:', error);
+      if (mainError) {
+        console.warn('Error refreshing main categories:', mainError);
         return;
       }
 
-      const mainCategories = (data || []).filter(cat => !cat.parent_id);
-      const subCategories = (data || []).filter(cat => cat.parent_id);
+      // Fetch sub categories
+      const { data: subCategories, error: subError } = await supabase
+        .from('sub_categories')
+        .select('*')
+        .eq('is_active', true)
+        .order('display_order', { ascending: true });
 
-      const transformed = mainCategories.map(mainCat => {
-        const subs = subCategories
-          .filter(sub => sub.parent_id === mainCat.id)
+      if (subError) {
+        console.warn('Error refreshing sub categories:', subError);
+        return;
+      }
+
+      // Fetch relationships
+      const { data: relationships, error: relError } = await supabase
+        .from('main_category_sub_categories')
+        .select('*')
+        .order('display_order', { ascending: true });
+
+      if (relError) {
+        console.warn('Error refreshing category relationships:', relError);
+        return;
+      }
+
+      // Transform to UI format
+      const transformed = (mainCategories || []).map(mainCat => {
+        const linkedSubIds = (relationships || [])
+          .filter(rel => rel.main_category_id === mainCat.id)
+          .map(rel => rel.sub_category_id);
+
+        const subs = (subCategories || [])
+          .filter(sub => linkedSubIds.includes(sub.id))
+          .sort((a, b) => {
+            const aOrder = relationships.find(r => r.sub_category_id === a.id && r.main_category_id === mainCat.id)?.display_order || 0;
+            const bOrder = relationships.find(r => r.sub_category_id === b.id && r.main_category_id === mainCat.id)?.display_order || 0;
+            return aOrder - bOrder;
+          })
           .map(sub => ({
             id: sub.name,
             name: sub.name,
-            label: sub.label
+            label: sub.name
           }));
 
         return {
           id: mainCat.name,
           name: mainCat.name,
-          label: mainCat.label,
+          label: mainCat.name,
           subCategories: subs
         };
       });
 
       setCategories(transformed);
-    } catch (err) {
-      console.warn('Error refreshing categories:', err);
+      console.log('✅ Categories refreshed:', transformed.length, 'main categories');
+    } catch (error) {
+      console.error('Error refreshing categories:', error);
     }
   };
 
