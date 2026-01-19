@@ -3,6 +3,7 @@ import { BrowserRouter, Routes as RouterRoutes, Route } from "react-router-dom";
 import ScrollToTop from "components/ScrollToTop";
 import ErrorBoundary from "components/ErrorBoundary";
 import ProtectedRoute from "components/ProtectedRoute";
+import PrivacyProtection from "components/PrivacyProtection";
 // Add your imports here
 import AdminLogin from "pages/admin-login";
 import AdminRegister from "pages/admin-register";
@@ -26,6 +27,7 @@ const Routes = () => {
   return (
     <BrowserRouter>
       <ErrorBoundary>
+      <PrivacyProtection />
       <ScrollToTop />
       <RouterRoutes>
         {/* Public routes */}

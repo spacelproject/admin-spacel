@@ -223,21 +223,48 @@ const SpaceManagement = () => {
       if (!confirmed) return;
 
       try {
-        console.log('🗑️ Deleting spaces:', selectedSpaces);
+        // Validate and sanitize selectedSpaces array
+        const validSpaceIds = selectedSpaces
+          .filter(id => id != null && id !== '' && typeof id === 'string')
+          .map(id => String(id).trim())
+          .filter(id => id.length > 0);
+
+        if (validSpaceIds.length === 0) {
+          console.warn('⚠️ No valid space IDs to delete');
+          alert('No valid spaces selected for deletion.');
+          setSelectedSpaces([]);
+          return;
+        }
+
+        console.log('🗑️ Deleting spaces:', validSpaceIds);
         
-        // Soft delete by setting status to 'deleted'
-        const { data, error } = await supabase
+        // Build query based on number of IDs
+        // Use 'inactive' status for soft delete (database constraint doesn't allow 'deleted')
+        let query = supabase
           .from('listings')
           .update({ 
-            status: 'deleted',
+            status: 'inactive',
             updated_at: new Date().toISOString()
-          })
-          .in('id', selectedSpaces)
-          .select('id, name, status');
+          });
+
+        // Use .in() for multiple IDs, .eq() for single ID
+        if (validSpaceIds.length === 1) {
+          query = query.eq('id', validSpaceIds[0]);
+        } else {
+          query = query.in('id', validSpaceIds);
+        }
+
+        const { data, error } = await query.select('id, name, status');
 
         if (error) {
           console.error('❌ Error deleting spaces:', error);
-          alert(`Failed to delete spaces: ${error.message}`);
+          console.error('Error details:', {
+            message: error.message,
+            details: error.details,
+            hint: error.hint,
+            code: error.code
+          });
+          alert(`Failed to delete spaces: ${error.message || 'Unknown error'}`);
           return;
         }
 
@@ -249,13 +276,13 @@ const SpaceManagement = () => {
         }
 
         console.log('✅ Spaces deleted successfully:', data);
-        console.log(`✅ Deleted ${data.length} of ${selectedSpaces.length} space(s)`);
+        console.log(`✅ Deleted ${data.length} of ${validSpaceIds.length} space(s)`);
         
         const deletedCount = data.length;
         setSelectedSpaces([]);
         
         // Refresh spaces list to remove deleted spaces from UI
-        // The fetchSpaces query now excludes deleted spaces, so they will disappear
+        // The fetchSpaces query now excludes inactive spaces, so they will disappear
         if (refresh) {
           console.log('🔄 Refreshing spaces list...');
           await refresh();
@@ -266,6 +293,7 @@ const SpaceManagement = () => {
         alert(`Successfully deleted ${deletedCount} space(s)`);
       } catch (err) {
         console.error('❌ Error deleting spaces:', err);
+        console.error('Error stack:', err.stack);
         alert(`Failed to delete spaces: ${err.message || 'Unknown error'}`);
       }
       return;

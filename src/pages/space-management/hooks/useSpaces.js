@@ -109,7 +109,7 @@ export const useSpaces = () => {
               updated_at,
               submitted_at
             `)
-            .neq('status', 'deleted') // Exclude deleted spaces
+            .neq('status', 'inactive') // Exclude inactive/deleted spaces
             .order('created_at', { ascending: false })
             // Remove limit to fetch all spaces, or use a very high limit
             .limit(1000)
@@ -531,11 +531,31 @@ export const useSpaces = () => {
   // Bulk update multiple spaces
   const bulkUpdateSpaces = async (spaceIds, status, notes = null) => {
     try {
+      // Validate and sanitize spaceIds array
+      const validSpaceIds = Array.isArray(spaceIds)
+        ? spaceIds
+            .filter(id => id != null && id !== '' && typeof id === 'string')
+            .map(id => String(id).trim())
+            .filter(id => id.length > 0)
+        : []
+
+      if (validSpaceIds.length === 0) {
+        throw new Error('No valid space IDs provided for bulk update')
+      }
+
       // First, get the listing data with partner info for notifications
-      const { data: listingsData, error: fetchError } = await supabase
+      let fetchQuery = supabase
         .from('listings')
         .select('id, name, partner_id')
-        .in('id', spaceIds)
+
+      // Use .eq() for single ID, .in() for multiple IDs
+      if (validSpaceIds.length === 1) {
+        fetchQuery = fetchQuery.eq('id', validSpaceIds[0])
+      } else {
+        fetchQuery = fetchQuery.in('id', validSpaceIds)
+      }
+
+      const { data: listingsData, error: fetchError } = await fetchQuery
 
       if (fetchError) {
         throw fetchError
@@ -555,11 +575,19 @@ export const useSpaces = () => {
         updateData.approved_by = user?.id
       }
 
-      const { data, error: updateError } = await supabase
+      // Build update query
+      let updateQuery = supabase
         .from('listings')
         .update(updateData)
-        .in('id', spaceIds)
-        .select()
+
+      // Use .eq() for single ID, .in() for multiple IDs
+      if (validSpaceIds.length === 1) {
+        updateQuery = updateQuery.eq('id', validSpaceIds[0])
+      } else {
+        updateQuery = updateQuery.in('id', validSpaceIds)
+      }
+
+      const { data, error: updateError } = await updateQuery.select()
 
       if (updateError) {
         throw updateError
