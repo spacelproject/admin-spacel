@@ -21,7 +21,7 @@ const PaymentConfigTab = () => {
   const [localFeeSettings, setLocalFeeSettings] = useState({
     seekerServiceRate: 12.0,
     partnerFeeRate: 4.0,
-    processingPercent: 1.75
+    taxRate: 20.0
   });
   
   const [localPaymentSettings, setLocalPaymentSettings] = useState({
@@ -361,14 +361,14 @@ const PaymentConfigTab = () => {
           />
           
           <Input
-            label="Processing Fee (%)"
+            label="Tax Rate (%)"
             type="number"
-            value={localFeeSettings.processingPercent ?? ''}
-            onChange={(e) => handleFeeInputChange('processingPercent', parseFloat(e.target.value) || 0)}
-            description="Payment processor fee percentage"
+            value={localFeeSettings.taxRate ?? ''}
+            onChange={(e) => handleFeeInputChange('taxRate', parseFloat(e.target.value) || 0)}
+            description="Tax rate percentage"
             min="0"
-            max="10"
-            step="0.01"
+            max="100"
+            step="0.1"
             required
             disabled={isSaving}
           />
@@ -379,9 +379,10 @@ const PaymentConfigTab = () => {
           <div className="text-sm text-muted-foreground space-y-1">
             <p>Booking Amount: A$100.00</p>
             <p>Seeker Service Fee ({localFeeSettings.seekerServiceRate || 0}%): A${(100 * (localFeeSettings.seekerServiceRate || 0) / 100).toFixed(2)}</p>
+            <p>Tax Rate ({(localFeeSettings.taxRate || 0)}% on service fee): A${((100 * (localFeeSettings.seekerServiceRate || 0) / 100) * (localFeeSettings.taxRate || 0) / 100).toFixed(2)}</p>
             <p>Partner Fee ({localFeeSettings.partnerFeeRate || 0}%): A${(100 * (localFeeSettings.partnerFeeRate || 0) / 100).toFixed(2)}</p>
-            <p>Processing Fee ({(localFeeSettings.processingPercent || 0)}%): A${((100 * (localFeeSettings.processingPercent || 0) / 100)).toFixed(2)}</p>
-            <p className="font-medium text-foreground">Space Owner Receives: A${(100 - (100 * (localFeeSettings.partnerFeeRate || 0) / 100) - (100 * (localFeeSettings.processingPercent || 0) / 100)).toFixed(2)}</p>
+            <p className="font-medium text-foreground">Total Paid by Seeker: A${(100 + (100 * (localFeeSettings.seekerServiceRate || 0) / 100) + ((100 * (localFeeSettings.seekerServiceRate || 0) / 100) * (localFeeSettings.taxRate || 0) / 100)).toFixed(2)}</p>
+            <p className="font-medium text-foreground">Space Owner Receives: A${(100 - (100 * (localFeeSettings.partnerFeeRate || 0) / 100)).toFixed(2)}</p>
           </div>
         </div>
 

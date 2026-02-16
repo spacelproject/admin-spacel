@@ -16,7 +16,7 @@ const useFeeSettings = () => {
   const [feeSettings, setFeeSettings] = useState({
     seekerServiceRate: 12.0, // 12% (stored as 12.00 in DB)
     partnerFeeRate: 4.0, // 4% (stored as 4.00 in DB)
-    processingPercent: 1.75 // 1.75% (stored as 1.75 in DB)
+    taxRate: 20.0 // 20% (stored as 20.00 in DB)
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -55,7 +55,7 @@ const useFeeSettings = () => {
           setFeeSettings({
             seekerServiceRate: 12.0,
             partnerFeeRate: 4.0,
-            processingPercent: 1.75
+            taxRate: 20.0
           });
           setLoading(false);
           return;
@@ -73,8 +73,8 @@ const useFeeSettings = () => {
           partnerFeeRate: parseFloat(
             data.partner_commission_rate ?? 4.0
           ),
-          processingPercent: parseFloat(
-            data.processing_fee ?? 1.75
+          taxRate: parseFloat(
+            data.tax_rate ?? 20.0
           )
         };
 
@@ -122,9 +122,7 @@ const useFeeSettings = () => {
       const commissionConfigData = {
         seeker_commission_rate: settingsToSave.seekerServiceRate ?? 12.0,
         partner_commission_rate: settingsToSave.partnerFeeRate ?? 4.0,
-        processing_fee: settingsToSave.processingPercent ?? 1.75,
-        // Store as decimal for backward compatibility; allow 0 explicitly
-        processing_fee_percent: (settingsToSave.processingPercent ?? 1.75) / 100,
+        tax_rate: settingsToSave.taxRate ?? 20.0,
         is_active: true,
         updated_by: user.id
       };
