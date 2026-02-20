@@ -521,12 +521,24 @@ class StripeCommissionTracking {
       }
     }
     // Priority 3: Fallback calculation
-    else if (applicationFeeGross > 0) {
-      // Estimate Stripe fees: 2.9% + $0.30 on the application fee
-      stripeFees = (applicationFeeGross * 0.029) + 0.30;
-      netApplicationFee = applicationFeeGross - stripeFees;
+    else if (applicationFeeGross > 0 && paymentIntent?.amount) {
+      // Calculate total transaction amount (what seeker pays)
+      // Total = Base Amount + Service Fee + Processing Fee
+      // We can estimate base amount from payment intent amount minus application fee gross
+      // Or use payment intent amount directly as total transaction
+      const totalTransaction = (paymentIntent.amount || 0) / 100; // Convert from cents
       
-      if (partnerFee) {
+      // For Stripe Connect, fees are charged on the FULL transaction amount
+      // Use Australian card fee structure: 2.7% + $0.05
+      const PERCENTAGE_RATE = 0.027; // 2.7% for Australian cards
+      const FIXED_FEE = 0.05; // $0.05 for Australian cards
+      stripeFees = (totalTransaction * PERCENTAGE_RATE) + FIXED_FEE;
+      
+      // Net application fee = Gross - Stripe Fees (charged on full transaction)
+      netApplicationFee = Math.max(0, applicationFeeGross - stripeFees);
+      
+      // Calculate commission portion
+      if (partnerFee && netApplicationFee > 0) {
         const commissionRatio = partnerFee / applicationFeeGross;
         netCommission = netApplicationFee * commissionRatio;
       }
@@ -567,6 +579,7 @@ class StripeCommissionTracking {
 
   /**
    * Sync commission data from Stripe to database
+   * Updates platform_earnings and net_application_fee with accurate Stripe data
    */
   static async syncCommissionFromStripe(bookingId, paymentIntentId) {
     try {
@@ -576,13 +589,21 @@ class StripeCommissionTracking {
       // Calculate commission breakdown
       const breakdown = this.calculateCommissionBreakdown(paymentData);
       
+      // Calculate platform earnings (commission portion of net application fee)
+      // Platform earnings = commission's proportional share of net application fee
+      let platformEarnings = breakdown.netCommission;
+      if (!platformEarnings && breakdown.netApplicationFee !== null && breakdown.applicationFeeGross > 0 && breakdown.partnerFee > 0) {
+        const commissionRatio = breakdown.partnerFee / breakdown.applicationFeeGross;
+        platformEarnings = breakdown.netApplicationFee * commissionRatio;
+      }
+      
       // Update database
       const { error } = await supabase
         .from('bookings')
         .update({
-          platform_earnings: breakdown.netCommission,
-          net_application_fee: breakdown.netApplicationFee,
-          stripe_fees: breakdown.stripeFees,
+          platform_earnings: platformEarnings || 0,
+          net_application_fee: breakdown.netApplicationFee || 0,
+          stripe_fees: breakdown.stripeFees || 0,
           updated_at: new Date().toISOString()
         })
         .eq('id', bookingId);
@@ -593,11 +614,93 @@ class StripeCommissionTracking {
 
       return {
         success: true,
-        breakdown,
+        breakdown: {
+          ...breakdown,
+          platformEarnings: platformEarnings || 0
+        },
         syncedAt: new Date()
       };
     } catch (error) {
       console.error('Error syncing commission from Stripe:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Validate commission calculations against Stripe data
+   * Returns discrepancies between database values and Stripe calculations
+   */
+  static async validateCommissionCalculations(bookingId, paymentIntentId) {
+    try {
+      // Get booking from database
+      const { data: booking, error: bookingError } = await supabase
+        .from('bookings')
+        .select('id, commission_partner, platform_earnings, net_application_fee, service_fee, payment_processing_fee, base_amount, total_paid')
+        .eq('id', bookingId)
+        .single();
+      
+      if (bookingError || !booking) {
+        throw new Error('Booking not found');
+      }
+      
+      // Fetch Stripe payment data
+      const paymentData = await this.getPaymentDetails(paymentIntentId);
+      const breakdown = this.calculateCommissionBreakdown(paymentData);
+      
+      // Calculate expected values
+      const expectedNetApplicationFee = breakdown.netApplicationFee || 0;
+      const expectedPlatformEarnings = breakdown.netCommission || 0;
+      const expectedStripeFees = breakdown.stripeFees || 0;
+      
+      // Get database values
+      const dbNetApplicationFee = parseFloat(booking.net_application_fee || 0);
+      const dbPlatformEarnings = parseFloat(booking.platform_earnings || 0);
+      
+      // Calculate discrepancies
+      const discrepancies = [];
+      const tolerance = 0.01; // 1 cent tolerance
+      
+      if (Math.abs(dbNetApplicationFee - expectedNetApplicationFee) > tolerance) {
+        discrepancies.push({
+          field: 'net_application_fee',
+          databaseValue: dbNetApplicationFee,
+          stripeValue: expectedNetApplicationFee,
+          difference: dbNetApplicationFee - expectedNetApplicationFee,
+          percentage: expectedNetApplicationFee > 0 
+            ? ((dbNetApplicationFee - expectedNetApplicationFee) / expectedNetApplicationFee * 100).toFixed(2)
+            : 0
+        });
+      }
+      
+      if (Math.abs(dbPlatformEarnings - expectedPlatformEarnings) > tolerance) {
+        discrepancies.push({
+          field: 'platform_earnings',
+          databaseValue: dbPlatformEarnings,
+          stripeValue: expectedPlatformEarnings,
+          difference: dbPlatformEarnings - expectedPlatformEarnings,
+          percentage: expectedPlatformEarnings > 0
+            ? ((dbPlatformEarnings - expectedPlatformEarnings) / expectedPlatformEarnings * 100).toFixed(2)
+            : 0
+        });
+      }
+      
+      return {
+        bookingId,
+        isValid: discrepancies.length === 0,
+        discrepancies,
+        breakdown,
+        databaseValues: {
+          netApplicationFee: dbNetApplicationFee,
+          platformEarnings: dbPlatformEarnings
+        },
+        stripeValues: {
+          netApplicationFee: expectedNetApplicationFee,
+          platformEarnings: expectedPlatformEarnings,
+          stripeFees: expectedStripeFees
+        }
+      };
+    } catch (error) {
+      console.error('Error validating commission calculations:', error);
       throw error;
     }
   }
@@ -665,25 +768,35 @@ class StripeCommissionTracking {
       // Sync each booking
       for (const booking of bookings) {
         try {
-          const syncResult = await this.syncCommissionFromStripe(
+          // Validate before syncing
+          const validation = await this.validateCommissionCalculations(
             booking.id,
             booking.stripe_payment_intent_id
           );
-
-          // Check for discrepancies
-          if (booking.platform_earnings && syncResult.breakdown.netCommission) {
-            const diff = Math.abs(booking.platform_earnings - syncResult.breakdown.netCommission);
-            if (diff > 0.01) { // More than 1 cent difference
+          
+          // If there are discrepancies, sync to fix them
+          if (!validation.isValid) {
+            const syncResult = await this.syncCommissionFromStripe(
+              booking.id,
+              booking.stripe_payment_intent_id
+            );
+            results.synced++;
+            
+            // Add discrepancies to results
+            validation.discrepancies.forEach(disc => {
               results.discrepancies.push({
                 bookingId: booking.id,
-                databaseValue: booking.platform_earnings,
-                stripeValue: syncResult.breakdown.netCommission,
-                difference: diff
+                field: disc.field,
+                databaseValue: disc.databaseValue,
+                stripeValue: disc.stripeValue,
+                difference: disc.difference,
+                percentage: disc.percentage
               });
-            }
+            });
+          } else {
+            // No discrepancies, mark as synced (already correct)
+            results.synced++;
           }
-
-          results.synced++;
         } catch (syncError) {
           console.error(`Error syncing booking ${booking.id}:`, syncError);
           results.errors++;

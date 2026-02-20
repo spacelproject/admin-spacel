@@ -159,6 +159,22 @@ const useBookings = () => {
         // Round baseAmount to 2 decimal places
         finalBaseAmount = Math.round(finalBaseAmount * 100) / 100
         
+        // Normalize payment status using refund information
+        const rawPaymentStatus = booking.payment_status || 'pending'
+        const refundAmountDb = booking.refund_amount !== null && booking.refund_amount !== undefined
+          ? parseFloat(booking.refund_amount)
+          : 0
+        const transferReversalAmountDb = booking.transfer_reversal_amount !== null && booking.transfer_reversal_amount !== undefined
+          ? parseFloat(booking.transfer_reversal_amount)
+          : 0
+        const hasStripeRefundId = !!booking.stripe_refund_id
+        let normalizedPaymentStatus = rawPaymentStatus
+
+        // If there is any recorded refund (Stripe ID or refund amounts), treat as refunded
+        if (hasStripeRefundId || refundAmountDb > 0 || transferReversalAmountDb > 0) {
+          normalizedPaymentStatus = 'refunded'
+        }
+
         return {
           id: booking.id,
           booking_reference: booking.booking_reference,
@@ -181,7 +197,7 @@ const useBookings = () => {
           checkOut: new Date(booking.end_time),
           guests: booking.guest_count || 1,
           status: booking.status || 'pending',
-          paymentStatus: booking.payment_status || 'pending',
+          paymentStatus: normalizedPaymentStatus,
           paymentMethod: 'Credit Card', // Default, could be enhanced
           transactionId: booking.stripe_payment_intent_id || '',
           // Price breakdown - using correct fields (all rounded to 2 decimal places)
@@ -964,6 +980,21 @@ const useBookings = () => {
                   }
                   finalBaseAmount = Math.round(finalBaseAmount * 100) / 100
 
+                  // Normalize payment status using refund information
+                  const rawPaymentStatus = updatedBooking.payment_status || 'pending'
+                  const refundAmountDb = updatedBooking.refund_amount !== null && updatedBooking.refund_amount !== undefined
+                    ? parseFloat(updatedBooking.refund_amount)
+                    : 0
+                  const transferReversalAmountDb = updatedBooking.transfer_reversal_amount !== null && updatedBooking.transfer_reversal_amount !== undefined
+                    ? parseFloat(updatedBooking.transfer_reversal_amount)
+                    : 0
+                  const hasStripeRefundId = !!updatedBooking.stripe_refund_id
+                  let normalizedPaymentStatus = rawPaymentStatus
+
+                  if (hasStripeRefundId || refundAmountDb > 0 || transferReversalAmountDb > 0) {
+                    normalizedPaymentStatus = 'refunded'
+                  }
+
                   // Fetch host profile if needed
                   let hostName = 'Unknown Host'
                   if (updatedBooking.listings?.partner_id) {
@@ -994,7 +1025,7 @@ const useBookings = () => {
                     checkOut: new Date(updatedBooking.end_time),
                     guests: updatedBooking.guest_count || 1,
                     status: updatedBooking.status || 'pending',
-                    paymentStatus: updatedBooking.payment_status || 'pending',
+                    paymentStatus: normalizedPaymentStatus,
                     paymentMethod: 'Credit Card',
                     transactionId: updatedBooking.stripe_payment_intent_id || '',
                     baseAmount: finalBaseAmount,

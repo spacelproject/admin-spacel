@@ -84,36 +84,60 @@ class StripeService {
    */
   /**
    * Calculate Stripe fees on a given amount
-   * Based on actual Stripe payment data analysis, the effective fee rate is ~3.96%
-   * (higher than standard 2.9% + $0.30 due to Stripe Connect fees)
+   * Uses Stripe's actual fee structure for Australian cards: 2.7% + $0.05
+   * For international cards: 2.9% + $0.30
    * 
    * @param {number} amount - Amount in dollars
+   * @param {boolean} isInternational - Whether card is international (default: false for AU)
    * @returns {number} Stripe fees in dollars
    */
-  static calculateStripeFees(amount) {
+  static calculateStripeFees(amount, isInternational = false) {
     if (!amount || amount <= 0) return 0;
-    // Based on actual Stripe payment data: effective rate is ~3.96% of transaction
-    // This matches actual Stripe fees better than standard 2.9% + $0.30
-    const STRIPE_FEE_RATE = 0.0396; // 3.96% - based on actual payment data
-    return amount * STRIPE_FEE_RATE;
+    
+    // Stripe's actual fee structure:
+    // Australian cards: 2.7% + $0.05
+    // International cards: 2.9% + $0.30
+    const PERCENTAGE_RATE = isInternational ? 0.029 : 0.027; // 2.9% or 2.7%
+    const FIXED_FEE = isInternational ? 0.30 : 0.05; // $0.30 or $0.05
+    
+    const percentageFee = amount * PERCENTAGE_RATE;
+    const totalFee = percentageFee + FIXED_FEE;
+    
+    return Math.round(totalFee * 100) / 100; // Round to 2 decimal places
   }
 
   /**
    * Calculate platform earnings (commission net after Stripe fees)
-   * @param {number} commissionAmount - Commission amount in dollars
-   * @returns {number} Net platform earnings after Stripe fees
-   */
-  /**
-   * Calculate platform earnings (commission net after Stripe fees)
-   * Note: This is a simplified calculation for commission portion only.
-   * For full application fee calculation, use calculateEstimatedNetApplicationFee()
+   * Note: This calculates the commission portion of net application fee.
+   * For Stripe Connect, fees are charged on the FULL transaction, not just commission.
+   * So we need to calculate the commission's proportional share of net application fee.
    * 
-   * @param {number} commissionAmount - Commission amount in dollars
-   * @returns {number} Net platform earnings after Stripe fees
+   * @param {number} commissionAmount - Commission amount in dollars (gross)
+   * @param {number} applicationFeeGross - Total application fee gross (service + processing + commission)
+   * @param {number} netApplicationFee - Net application fee after Stripe fees (optional, will calculate if not provided)
+   * @param {number} totalTransaction - Total transaction amount (optional, needed if netApplicationFee not provided)
+   * @returns {number} Net platform earnings (commission portion after Stripe fees)
    */
-  static calculatePlatformEarnings(commissionAmount) {
+  static calculatePlatformEarnings(commissionAmount, applicationFeeGross = null, netApplicationFee = null, totalTransaction = null) {
     if (!commissionAmount || commissionAmount <= 0) return 0;
-    const stripeFees = this.calculateStripeFees(commissionAmount);
+    
+    // If we have the net application fee, calculate commission's proportional share
+    if (netApplicationFee !== null && netApplicationFee !== undefined && applicationFeeGross && applicationFeeGross > 0) {
+      const commissionRatio = commissionAmount / applicationFeeGross;
+      return Math.max(0, netApplicationFee * commissionRatio);
+    }
+    
+    // Fallback: If we have total transaction, calculate net application fee first
+    if (totalTransaction !== null && totalTransaction !== undefined && applicationFeeGross && applicationFeeGross > 0) {
+      const stripeFees = this.calculateStripeFees(totalTransaction, false);
+      const calculatedNetApplicationFee = Math.max(0, applicationFeeGross - stripeFees);
+      const commissionRatio = commissionAmount / applicationFeeGross;
+      return Math.max(0, calculatedNetApplicationFee * commissionRatio);
+    }
+    
+    // Last resort: Simple calculation (less accurate, but better than nothing)
+    // This assumes fees are only on commission, which is not accurate for Stripe Connect
+    const stripeFees = this.calculateStripeFees(commissionAmount, false);
     return Math.max(0, commissionAmount - stripeFees);
   }
 
@@ -178,12 +202,10 @@ class StripeService {
     const totalTransaction = baseAmount + (estimatedServiceFee || 0) + (estimatedProcessingFee || 0);
     
     // Step 4: Calculate Stripe fees on total transaction
-    // Based on actual Stripe payment data analysis:
-    // - Actual fee rate observed: ~3.96% of total transaction (vs. standard 2.9% + $0.30)
-    // - This accounts for Stripe Connect destination charge fees and additional processing costs
-    // - For better accuracy matching Stripe, we use: transaction × 3.96%
-    const STRIPE_FEE_RATE = 0.0396; // 3.96% - based on actual Stripe payment data
-    const estimatedStripeFees = totalTransaction > 0 ? totalTransaction * STRIPE_FEE_RATE : 0;
+    // For Stripe Connect destination charges, Stripe charges fees on the FULL transaction amount
+    // The platform receives the application fee gross, but Stripe deducts fees from platform balance
+    // Use actual Stripe fee structure: 2.7% + $0.05 for Australian cards
+    const estimatedStripeFees = this.calculateStripeFees(totalTransaction, false); // false = Australian card
     
     // Step 5: Calculate net application fee
     // Net = Application Fee Gross - Stripe Fees

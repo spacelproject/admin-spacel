@@ -331,9 +331,13 @@ const useCommissionData = () => {
             ? parseFloat(booking.transfer_reversal_amount)
             : 0
           const isRefunded = booking.payment_status === 'refunded'
-          const isFullRefund = isRefunded && (
-            (refundAmount > 0 && Math.abs(refundAmount - totalPaid) < 0.01) || // Refund equals total paid
-            booking.status === 'cancelled' // Full refunds set status to cancelled
+          const isCancelled = booking.status === 'cancelled'
+          // Treat ANY cancelled booking as a full refund from the platform's perspective
+          // i.e. the platform should not show any earnings for cancelled bookings
+          const isFullRefund = isCancelled || (
+            isRefunded && (
+              refundAmount > 0 && Math.abs(refundAmount - totalPaid) < 0.01 // Refund equals total paid
+            )
           )
           // 50/50 split is identified by:
           // 1. NOT being a full refund
@@ -461,18 +465,30 @@ const useCommissionData = () => {
                 })
               }
             } else if (applicationFeeGross > 0) {
-              // Last fallback: estimate Stripe fees on application fee gross
-              const estimatedStripeFees = (applicationFeeGross * 0.029) + 0.30
+              // Last fallback: estimate Stripe fees on total transaction
+              // For Stripe Connect, fees are charged on the FULL transaction amount
+              // Use Australian card fee structure: 2.7% + $0.05
+              const estimatedStripeFees = StripeService.calculateStripeFees(totalTransactionAmount, false)
               netApplicationFee = Math.max(0, applicationFeeGross - estimatedStripeFees)
             } else {
               netApplicationFee = 0
             }
           }
           
-          // Platform earnings should be the Net Application Fee (what platform keeps after Stripe fees)
-          // For partial refunds, this is the FULL application fee (platform keeps it)
-          // For full refunds, this is 0 (platform loses it)
-          const platformEarnings = netApplicationFee || 0
+          // Platform earnings = commission portion of Net Application Fee
+          // For Stripe Connect, fees are charged on the FULL transaction, not just commission
+          // So we calculate commission's proportional share of net application fee
+          let platformEarnings = 0
+          if (isCancelled || isFullRefund) {
+            // Business rule: ANY cancelled or fully refunded booking should show zero platform earnings
+            platformEarnings = 0
+          } else if (netApplicationFee !== null && netApplicationFee !== undefined && applicationFeeGross > 0 && commissionPartner > 0) {
+            const commissionRatio = commissionPartner / applicationFeeGross
+            platformEarnings = netApplicationFee * commissionRatio
+          } else if (booking.platform_earnings !== null && booking.platform_earnings !== undefined) {
+            // Fallback: use database value if available
+            platformEarnings = parseFloat(booking.platform_earnings || 0)
+          }
           
           // Commission rate should be calculated on base amount
           const commissionRate = baseAmount > 0 ? (commissionPartner / baseAmount) * 100 : 0
